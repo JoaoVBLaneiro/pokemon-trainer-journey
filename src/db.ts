@@ -248,6 +248,42 @@ export type ReleaseMemory = {
   createdAt: string;
 };
 
+export type JournalEntryKind =
+  | "pokemon-met"
+  | "gym"
+  | "badge"
+  | "battle"
+  | "journey"
+  | "bond"
+  | "achievement"
+  | "note"
+  | "custom";
+
+export type JournalPokemonParticipant = {
+  originalPokemonId: string;
+  nickname: string;
+  displayName: string;
+  speciesId: number;
+  isShiny: boolean;
+  types: string[];
+  artwork: string;
+  shinyArtwork: string;
+};
+
+export type JournalEntry = {
+  id: string;
+  kind: JournalEntryKind;
+  title: string;
+  eventDate: string;
+  location: string;
+  description: string;
+  pokemonIds: string[];
+  pokemon: JournalPokemonParticipant[];
+  sourcePokemonId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 const createdAt = new Date().toISOString();
 
 export const DEFAULT_TRAINER: TrainerProfile = {
@@ -276,6 +312,7 @@ class TrainerJourneyDatabase extends Dexie {
   releaseMemories!: Table<ReleaseMemory, string>;
   evolutionMemories!: Table<EvolutionMemory, string>;
   pokemonPlaces!: Table<PokemonPlace, string>;
+  journalEntries!: Table<JournalEntry, string>;
 
   constructor() {
     super("trainerJourney");
@@ -386,6 +423,102 @@ class TrainerJourneyDatabase extends Dexie {
         "id, pokemonId, evolutionDate, createdAt, updatedAt, fromSpeciesId, toSpeciesId",
       pokemonPlaces: "id, name, kind, region, updatedAt",
     });
+
+    this.version(8)
+      .stores({
+        trainerProfiles: "id, name, region, updatedAt",
+        pokemonSpeciesIndex: "apiName, speciesId, displayName, fetchedAt",
+        pokemonSpeciesDetails: "apiName, speciesId, displayName, fetchedAt",
+        pokemonCatalog: "apiName, pokemonId, speciesId, displayName, fetchedAt, *types",
+        pokemonItemIndex: "apiName, displayName, fetchedAt",
+        pokemonItemDetails: "apiName, displayName, fetchedAt",
+        pokemonMoveDetails: "apiName, displayName, type, fetchedAt",
+        pokemonEvolutionChains: "chainUrl, fetchedAt",
+        ownedPokemon: "id, pokemonApiName, speciesId, nickname, status, partySlot, locationId, lastLocationId, createdAt, updatedAt, *types",
+        releaseMemories: "id, originalPokemonId, releaseDate, createdAt, nickname, displayName, speciesId, *types",
+        evolutionMemories: "id, pokemonId, evolutionDate, createdAt, updatedAt, fromSpeciesId, toSpeciesId",
+        pokemonPlaces: "id, name, kind, region, updatedAt",
+        journalEntries: "id, kind, eventDate, sourcePokemonId, createdAt, updatedAt, *pokemonIds",
+      })
+      .upgrade(async (transaction) => {
+        const pokemonTable = transaction.table<OwnedPokemon, string>("ownedPokemon");
+        const releaseTable = transaction.table<ReleaseMemory, string>("releaseMemories");
+        const evolutionTable = transaction.table<EvolutionMemory, string>("evolutionMemories");
+        const journalTable = transaction.table<JournalEntry, string>("journalEntries");
+        const activePokemon = await pokemonTable.toArray();
+        const releasedPokemon = await releaseTable.toArray();
+        const evolutionHistory = await evolutionTable.toArray();
+        const activeIds = new Set(activePokemon.map((pokemon) => pokemon.id));
+        const earliestEvolution = new Map<string, EvolutionMemory>();
+
+        for (const memory of evolutionHistory) {
+          const current = earliestEvolution.get(memory.pokemonId);
+          if (!current || memory.createdAt < current.createdAt) {
+            earliestEvolution.set(memory.pokemonId, memory);
+          }
+        }
+
+        for (const pokemon of activePokemon) {
+          const firstEvolution = earliestEvolution.get(pokemon.id);
+          const participant = firstEvolution
+            ? snapshotEvolutionJournalParticipant(
+                pokemon.id,
+                pokemon.nickname,
+                pokemon.isShiny,
+                firstEvolution.from,
+              )
+            : snapshotJournalParticipant(pokemon);
+          const eventDate = pokemon.metDate || pokemon.createdAt.slice(0, 10);
+          await journalTable.add({
+            id: createId(),
+            kind: "pokemon-met",
+            title: `Met ${pokemon.nickname.trim() || pokemon.displayName}`,
+            eventDate,
+            location: pokemon.metLocation,
+            description:
+              pokemon.meetingStory ||
+              `${pokemon.nickname.trim() || pokemon.displayName} became part of the journey.`,
+            pokemonIds: [pokemon.id],
+            pokemon: [participant],
+            sourcePokemonId: pokemon.id,
+            createdAt: pokemon.createdAt,
+            updatedAt: pokemon.updatedAt,
+          });
+        }
+
+        for (const memory of releasedPokemon) {
+          if (activeIds.has(memory.originalPokemonId)) {
+            continue;
+          }
+
+          const firstEvolution = earliestEvolution.get(memory.originalPokemonId);
+          const participant = firstEvolution
+            ? snapshotEvolutionJournalParticipant(
+                memory.originalPokemonId,
+                memory.nickname,
+                memory.isShiny,
+                firstEvolution.from,
+              )
+            : snapshotReleaseJournalParticipant(memory);
+          const eventDate =
+            memory.metDate || memory.partnerSince.slice(0, 10) || memory.createdAt.slice(0, 10);
+          await journalTable.add({
+            id: createId(),
+            kind: "pokemon-met",
+            title: `Met ${memory.nickname.trim() || memory.displayName}`,
+            eventDate,
+            location: memory.metLocation,
+            description:
+              memory.meetingStory ||
+              `${memory.nickname.trim() || memory.displayName} became part of the journey.`,
+            pokemonIds: [memory.originalPokemonId],
+            pokemon: [participant],
+            sourcePokemonId: memory.originalPokemonId,
+            createdAt: memory.partnerSince || memory.createdAt,
+            updatedAt: memory.createdAt,
+          });
+        }
+      });
   }
 }
 
@@ -489,6 +622,18 @@ export type EditableEvolutionMemoryInput = Pick<
   | "evolutionNotes"
 >;
 
+export type SaveJournalEntryInput = Pick<
+  JournalEntry,
+  "kind" | "title" | "eventDate" | "location" | "description" | "pokemonIds"
+> & {
+  sourcePokemonId?: string;
+};
+
+export type EditableReleaseMemoryInput = Pick<
+  ReleaseMemory,
+  "releaseDate" | "releaseLocation" | "releaseReason" | "farewellNote"
+>;
+
 export class PartyFullError extends Error {
   constructor() {
     super("Your travelling party already has six Pokémon.");
@@ -502,6 +647,54 @@ function createId() {
   }
 
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function snapshotJournalParticipant(
+  pokemon: OwnedPokemon,
+): JournalPokemonParticipant {
+  return {
+    originalPokemonId: pokemon.id,
+    nickname: pokemon.nickname,
+    displayName: pokemon.displayName,
+    speciesId: pokemon.speciesId,
+    isShiny: pokemon.isShiny,
+    types: [...pokemon.types],
+    artwork: pokemon.artwork,
+    shinyArtwork: pokemon.shinyArtwork,
+  };
+}
+
+function snapshotReleaseJournalParticipant(
+  memory: ReleaseMemory,
+): JournalPokemonParticipant {
+  return {
+    originalPokemonId: memory.originalPokemonId,
+    nickname: memory.nickname,
+    displayName: memory.displayName,
+    speciesId: memory.speciesId,
+    isShiny: memory.isShiny,
+    types: [...memory.types],
+    artwork: memory.artwork,
+    shinyArtwork: memory.shinyArtwork,
+  };
+}
+
+function snapshotEvolutionJournalParticipant(
+  originalPokemonId: string,
+  nickname: string,
+  isShiny: boolean,
+  snapshot: PokemonEvolutionSnapshot,
+): JournalPokemonParticipant {
+  return {
+    originalPokemonId,
+    nickname,
+    displayName: snapshot.displayName,
+    speciesId: snapshot.speciesId,
+    isShiny,
+    types: [...snapshot.types],
+    artwork: snapshot.artwork,
+    shinyArtwork: snapshot.shinyArtwork,
+  };
 }
 
 function findOpenPartySlot(party: OwnedPokemon[]) {
@@ -664,7 +857,7 @@ export async function addOwnedPokemon(
 ) {
   return db.transaction(
     "rw",
-    [db.ownedPokemon, db.pokemonPlaces],
+    [db.ownedPokemon, db.pokemonPlaces, db.journalEntries],
     async () => {
       const { addToParty, locationId: requestedLocationId, ...details } = input;
       const party = await db.ownedPokemon
@@ -692,6 +885,23 @@ export async function addOwnedPokemon(
       };
 
       await db.ownedPokemon.add(pokemon);
+
+      const companionName = pokemon.nickname.trim() || pokemon.displayName;
+      const meetingEntry: JournalEntry = {
+        id: createId(),
+        kind: "pokemon-met",
+        title: `Met ${companionName}`,
+        eventDate: pokemon.metDate || now.slice(0, 10),
+        location: pokemon.metLocation,
+        description:
+          pokemon.meetingStory || `${companionName} became part of the journey.`,
+        pokemonIds: [pokemon.id],
+        pokemon: [snapshotJournalParticipant(pokemon)],
+        sourcePokemonId: pokemon.id,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await db.journalEntries.add(meetingEntry);
       return pokemon;
     },
   );
@@ -703,7 +913,7 @@ export async function updateOwnedPokemon(
 ) {
   return db.transaction(
     "rw",
-    [db.ownedPokemon, db.pokemonPlaces],
+    [db.ownedPokemon, db.pokemonPlaces, db.journalEntries],
     async () => {
       const pokemon = await db.ownedPokemon.get(id);
 
@@ -764,6 +974,27 @@ export async function updateOwnedPokemon(
       };
 
       await db.ownedPokemon.put(updated);
+
+      const meetingEntry = await db.journalEntries
+        .where("sourcePokemonId")
+        .equals(updated.id)
+        .and((entry) => entry.kind === "pokemon-met")
+        .first();
+
+      if (meetingEntry) {
+        await db.journalEntries.put({
+          ...meetingEntry,
+          eventDate: updated.metDate || meetingEntry.eventDate,
+          location: updated.metLocation,
+          description:
+            updated.meetingStory ||
+            `${updated.nickname.trim() || updated.displayName} became part of the journey.`,
+          pokemonIds: [updated.id],
+          pokemon: meetingEntry.pokemon,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
       return updated;
     },
   );
@@ -1047,6 +1278,122 @@ export async function releaseOwnedPokemon(
       return memory;
     },
   );
+}
+
+export async function updateReleaseMemory(
+  id: string,
+  changes: EditableReleaseMemoryInput,
+) {
+  const memory = await db.releaseMemories.get(id);
+
+  if (!memory) {
+    throw new Error("That release memory no longer exists.");
+  }
+
+  const updated: ReleaseMemory = {
+    ...memory,
+    releaseDate: changes.releaseDate,
+    releaseLocation: changes.releaseLocation.trim(),
+    releaseReason: changes.releaseReason.trim(),
+    farewellNote: changes.farewellNote.trim(),
+  };
+
+  await db.releaseMemories.put(updated);
+  return updated;
+}
+
+export async function saveJournalEntry(
+  input: SaveJournalEntryInput,
+  id?: string,
+) {
+  const title = input.title.trim();
+
+  if (!title) {
+    throw new Error("Give this journal entry a title.");
+  }
+
+  if (!input.eventDate) {
+    throw new Error("Choose when this memory happened.");
+  }
+
+  return db.transaction(
+    "rw",
+    [db.journalEntries, db.ownedPokemon],
+    async () => {
+      const existing = id ? await db.journalEntries.get(id) : undefined;
+      const activePokemon = await db.ownedPokemon.bulkGet(input.pokemonIds);
+      const existingParticipants = new Map(
+        (existing?.pokemon ?? []).map((participant) => [
+          participant.originalPokemonId,
+          participant,
+        ]),
+      );
+      const participants = input.pokemonIds
+        .map((pokemonId, index) => {
+          const preservedMeetingParticipant =
+            existing?.kind === "pokemon-met"
+              ? existingParticipants.get(pokemonId)
+              : undefined;
+          if (preservedMeetingParticipant) {
+            return preservedMeetingParticipant;
+          }
+
+          const pokemon = activePokemon[index];
+          return pokemon
+            ? snapshotJournalParticipant(pokemon)
+            : existingParticipants.get(pokemonId);
+        })
+        .filter(
+          (participant): participant is JournalPokemonParticipant =>
+            Boolean(participant),
+        );
+      const now = new Date().toISOString();
+      const sourcePokemonId =
+        input.sourcePokemonId ?? existing?.sourcePokemonId;
+      const entry: JournalEntry = {
+        id: existing?.id ?? createId(),
+        kind: existing?.kind === "pokemon-met" ? "pokemon-met" : input.kind,
+        title,
+        eventDate: input.eventDate,
+        location: input.location.trim(),
+        description: input.description.trim(),
+        pokemonIds: participants.map((participant) => participant.originalPokemonId),
+        pokemon: participants,
+        sourcePokemonId,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      };
+
+      await db.journalEntries.put(entry);
+
+      if (entry.kind === "pokemon-met" && sourcePokemonId) {
+        const pokemon = await db.ownedPokemon.get(sourcePokemonId);
+
+        if (pokemon) {
+          await db.ownedPokemon.put({
+            ...pokemon,
+            metDate: entry.eventDate,
+            metLocation: entry.location,
+            meetingStory: entry.description,
+            updatedAt: now,
+          });
+        }
+      }
+
+      return entry;
+    },
+  );
+}
+
+export async function deleteJournalEntry(id: string) {
+  const entry = await db.journalEntries.get(id);
+
+  if (!entry) {
+    return undefined;
+  }
+
+  await db.journalEntries.delete(id);
+  return entry;
 }
 
 export async function deleteReleaseMemory(id: string) {

@@ -5271,3 +5271,222 @@ button {
     grid-column: auto;
   }
 }
+
+
+/* Journal v2: custom memories, meeting logs and editor */
+.journal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.general-journal-card {
+  --card-accent: #557963;
+  --card-tint: #e8f1eb;
+}
+
+.general-journal-visual {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: linear-gradient(145deg, var(--card-tint), #f8faf8);
+}
+
+.general-journal-icon {
+  display: grid;
+  width: 86px;
+  height: 86px;
+  place-items: center;
+  border: 1px solid rgba(35, 76, 57, 0.1);
+  border-radius: 28px;
+  color: var(--green-800);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 16px 36px rgba(28, 58, 44, 0.08);
+  font-size: 2rem;
+}
+
+.general-journal-pokemon-art {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border-radius: 32px;
+  background: var(--card-tint);
+}
+
+.general-journal-pokemon-art img {
+  position: relative;
+  z-index: 1;
+  width: 130px;
+  height: 130px;
+  object-fit: contain;
+  filter: drop-shadow(0 12px 12px rgba(28, 51, 40, 0.13));
+}
+
+.general-memory-label {
+  color: var(--green-700);
+  background: var(--green-100);
+}
+
+.general-memory-story {
+  border-left-color: var(--green-700);
+}
+
+.journal-participant-row {
+  display: grid;
+  gap: 9px;
+  margin-top: 16px;
+}
+
+.journal-participant-row > strong {
+  color: #76827b;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.journal-participant-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.journal-participant-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 9px 4px 5px;
+  border: 1px solid #dbe5df;
+  border-radius: 999px;
+  color: var(--green-800);
+  background: #f6f9f7;
+  font-size: 0.63rem;
+  font-weight: 750;
+}
+
+.journal-participant-chip img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.journal-general-preview-icon {
+  display: grid;
+  width: 82px;
+  height: 82px;
+  place-items: center;
+  border-radius: 23px;
+  color: var(--green-800);
+  background: var(--green-100);
+  font-size: 1.8rem;
+}
+
+.journal-entry-modal {
+  width: min(940px, calc(100vw - 36px));
+  max-height: calc(100dvh - 48px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.journal-entry-modal .profile-form {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.journal-pokemon-picker {
+  display: grid;
+  gap: 14px;
+  padding: 20px 24px 24px;
+  border-top: 1px solid var(--line);
+  background: #f8faf8;
+}
+
+.journal-pokemon-picker h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
+.journal-pokemon-picker p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.journal-pokemon-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.journal-pokemon-option {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 9px;
+  padding: 8px;
+  border: 1px solid #dce5df;
+  border-radius: 14px;
+  color: var(--ink);
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.journal-pokemon-option.selected {
+  border-color: var(--green-700);
+  box-shadow: 0 0 0 2px rgba(46, 103, 79, 0.09);
+}
+
+.journal-pokemon-option-art {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--card-tint);
+}
+
+.journal-pokemon-option-art img {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
+
+.journal-pokemon-option strong,
+.journal-pokemon-option small {
+  overflow: hidden;
+  display: block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.journal-pokemon-option strong { font-size: 0.72rem; }
+.journal-pokemon-option small { margin-top: 3px; color: var(--muted); font-size: 0.58rem; }
+.journal-pokemon-option b { color: var(--green-700); text-align: center; }
+.archived-participant-note { padding: 10px 12px; border-radius: 10px; background: #eef4f0; }
+
+@media (max-width: 900px) {
+  .journal-page-header,
+  .journal-header-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .journal-header-actions .primary-button { width: 100%; }
+  .journal-pokemon-picker-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 620px) {
+  .general-journal-visual { min-height: 150px; }
+  .general-journal-pokemon-art { width: 125px; height: 125px; }
+  .general-journal-pokemon-art img { width: 110px; height: 110px; }
+  .journal-pokemon-picker-grid { grid-template-columns: 1fr; }
+  .journal-entry-modal { width: 100%; max-height: 100dvh; border-radius: 0; }
+}

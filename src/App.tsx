@@ -16,6 +16,7 @@ import {
   addOwnedPokemon,
   db,
   DEFAULT_TRAINER,
+  deleteJournalEntry,
   deletePokemonPlace,
   deleteReleaseMemory,
   ensureTrainerProfile,
@@ -25,12 +26,17 @@ import {
   PartyFullError,
   PRIMARY_TRAINER_ID,
   releaseOwnedPokemon,
+  saveJournalEntry,
   savePokemonPlace,
   saveTrainerProfile,
   undoLatestEvolution,
   updateEvolutionMemory,
   updateOwnedPokemon,
+  updateReleaseMemory,
   type EvolutionMemory,
+  type JournalEntry,
+  type JournalEntryKind,
+  type JournalPokemonParticipant,
   type OwnedPokemon,
   type OwnedPokemonStatus,
   type PokemonAbilityOption,
@@ -347,8 +353,43 @@ function getSnapshotArtwork(
     : snapshot.artwork;
 }
 
-function getMemoryCreatedAt(memory: ReleaseMemory | EvolutionMemory) {
-  return memory.createdAt;
+const journalKindMeta: Record<
+  JournalEntryKind,
+  { label: string; icon: string }
+> = {
+  "pokemon-met": { label: "Pokémon meeting", icon: "◉" },
+  gym: { label: "Gym victory", icon: "🏅" },
+  badge: { label: "Badge earned", icon: "◆" },
+  battle: { label: "Battle", icon: "⚔" },
+  journey: { label: "Journey moment", icon: "⌖" },
+  bond: { label: "Pokémon bond", icon: "♥" },
+  achievement: { label: "Achievement", icon: "★" },
+  note: { label: "Journal note", icon: "✎" },
+  custom: { label: "Custom memory", icon: "✦" },
+};
+
+function getJournalParticipantName(participant: JournalPokemonParticipant) {
+  return participant.nickname.trim() || participant.displayName;
+}
+
+function getJournalParticipantArtwork(participant: JournalPokemonParticipant) {
+  return participant.isShiny
+    ? participant.shinyArtwork || participant.artwork
+    : participant.artwork;
+}
+
+function getMemoryTimelineDate(
+  memory: ReleaseMemory | EvolutionMemory | JournalEntry,
+) {
+  if ("eventDate" in memory) {
+    return memory.eventDate || memory.createdAt.slice(0, 10);
+  }
+
+  if ("releaseDate" in memory) {
+    return memory.releaseDate || memory.createdAt.slice(0, 10);
+  }
+
+  return memory.evolutionDate || memory.createdAt.slice(0, 10);
 }
 
 function resourceSlug(value: string) {
@@ -1169,12 +1210,22 @@ function PlacesPreview({
 function JournalPreview({
   releaseMemories,
   evolutionMemories,
+  journalMemories,
 }: {
   releaseMemories: ReleaseMemory[];
   evolutionMemories: EvolutionMemory[];
+  journalMemories: JournalEntry[];
 }) {
-  const latestMemory = [...releaseMemories, ...evolutionMemories]
-    .sort((a, b) => getMemoryCreatedAt(b).localeCompare(getMemoryCreatedAt(a)))[0];
+  const latest = [
+    ...releaseMemories.map((memory) => ({ kind: "release" as const, memory })),
+    ...evolutionMemories.map((memory) => ({ kind: "evolution" as const, memory })),
+    ...journalMemories.map((memory) => ({ kind: "journal" as const, memory })),
+  ].sort((a, b) => {
+    const dateCompare = getMemoryTimelineDate(b.memory).localeCompare(
+      getMemoryTimelineDate(a.memory),
+    );
+    return dateCompare || b.memory.createdAt.localeCompare(a.memory.createdAt);
+  })[0];
 
   return (
     <section className="content-section">
@@ -1188,71 +1239,70 @@ function JournalPreview({
         </NavLink>
       </div>
 
-      {latestMemory ? (
-        "releaseReason" in latestMemory ? (
-          <article className="journal-release-preview">
-            <div className="journal-release-art" style={getTypeStyle(latestMemory.types)}>
-              <div className="collection-art-glow" />
-              {getReleaseMemoryArtwork(latestMemory) ? (
-                <img
-                  src={getReleaseMemoryArtwork(latestMemory)}
-                  alt={latestMemory.displayName}
-                />
-              ) : (
-                <span className="missing-art">?</span>
-              )}
+      {latest ? (
+        latest.kind === "journal" ? (
+          <article className="journal-release-preview general-memory-preview">
+            <div className="journal-general-preview-icon">
+              {journalKindMeta[latest.memory.kind].icon}
             </div>
             <div className="journal-release-copy">
-              <span className="section-kicker">Released companion</span>
-              <h3>{getReleaseMemoryName(latestMemory)} began a new chapter.</h3>
-              <p>{latestMemory.releaseReason}</p>
+              <span className="section-kicker">
+                {journalKindMeta[latest.memory.kind].label}
+              </span>
+              <h3>{latest.memory.title}</h3>
+              <p>
+                {latest.memory.description || "A moment from your journey."}
+              </p>
               <div className="release-preview-meta">
-                <span>{formatDisplayDate(latestMemory.releaseDate)}</span>
-                {latestMemory.releaseLocation && (
-                  <span>{latestMemory.releaseLocation}</span>
-                )}
+                <span>{formatDisplayDate(latest.memory.eventDate)}</span>
+                {latest.memory.location && <span>{latest.memory.location}</span>}
               </div>
             </div>
             <NavLink to="/journal" className="release-preview-link">
               Read memory →
             </NavLink>
           </article>
+        ) : latest.kind === "release" ? (
+          <article className="journal-release-preview">
+            <div className="journal-release-art" style={getTypeStyle(latest.memory.types)}>
+              <div className="collection-art-glow" />
+              {getReleaseMemoryArtwork(latest.memory) ? (
+                <img src={getReleaseMemoryArtwork(latest.memory)} alt={latest.memory.displayName} />
+              ) : (
+                <span className="missing-art">?</span>
+              )}
+            </div>
+            <div className="journal-release-copy">
+              <span className="section-kicker">Released companion</span>
+              <h3>{getReleaseMemoryName(latest.memory)} began a new chapter.</h3>
+              <p>{latest.memory.releaseReason}</p>
+              <div className="release-preview-meta">
+                <span>{formatDisplayDate(latest.memory.releaseDate)}</span>
+                {latest.memory.releaseLocation && <span>{latest.memory.releaseLocation}</span>}
+              </div>
+            </div>
+            <NavLink to="/journal" className="release-preview-link">Read memory →</NavLink>
+          </article>
         ) : (
           <article className="journal-release-preview evolution-preview">
-            <div
-              className="journal-release-art evolution-preview-art"
-              style={getTypeStyle(latestMemory.to.types)}
-            >
+            <div className="journal-release-art evolution-preview-art" style={getTypeStyle(latest.memory.to.types)}>
               <div className="collection-art-glow" />
-              {getSnapshotArtwork(latestMemory.to, latestMemory.isShiny) ? (
-                <img
-                  src={getSnapshotArtwork(latestMemory.to, latestMemory.isShiny)}
-                  alt={latestMemory.to.displayName}
-                />
+              {getSnapshotArtwork(latest.memory.to, latest.memory.isShiny) ? (
+                <img src={getSnapshotArtwork(latest.memory.to, latest.memory.isShiny)} alt={latest.memory.to.displayName} />
               ) : (
                 <span className="missing-art">?</span>
               )}
             </div>
             <div className="journal-release-copy">
               <span className="section-kicker">Evolution memory</span>
-              <h3>
-                {getEvolutionMemoryName(latestMemory)} evolved into {latestMemory.to.displayName}.
-              </h3>
-              <p>
-                {latestMemory.evolutionNotes ||
-                  latestMemory.evolutionMethod ||
-                  "A new stage of the journey began."}
-              </p>
+              <h3>{getEvolutionMemoryName(latest.memory)} evolved into {latest.memory.to.displayName}.</h3>
+              <p>{latest.memory.evolutionNotes || latest.memory.evolutionMethod || "A new stage of the journey began."}</p>
               <div className="release-preview-meta">
-                <span>{formatDisplayDate(latestMemory.evolutionDate)}</span>
-                {latestMemory.evolutionLocation && (
-                  <span>{latestMemory.evolutionLocation}</span>
-                )}
+                <span>{formatDisplayDate(latest.memory.evolutionDate)}</span>
+                {latest.memory.evolutionLocation && <span>{latest.memory.evolutionLocation}</span>}
               </div>
             </div>
-            <NavLink to="/journal" className="release-preview-link">
-              Read memory →
-            </NavLink>
+            <NavLink to="/journal" className="release-preview-link">Read memory →</NavLink>
           </article>
         )
       ) : (
@@ -1261,8 +1311,8 @@ function JournalPreview({
           <div>
             <h3>Your journey journal is still empty.</h3>
             <p>
-              Evolutions and farewells will be preserved here with the dates,
-              places, reasons, and notes you choose to record.
+              Meetings, Gym victories, travels, evolutions, farewells, and any
+              other moment you want to remember can live here.
             </p>
           </div>
           <span className="coming-soon-pill">Your story starts here</span>
@@ -1278,6 +1328,7 @@ function DashboardPage({
   party,
   releaseMemories,
   evolutionMemories,
+  journalMemories,
   places,
   onEditProfile,
   onAddPokemon,
@@ -1288,6 +1339,7 @@ function DashboardPage({
   party: OwnedPokemon[];
   releaseMemories: ReleaseMemory[];
   evolutionMemories: EvolutionMemory[];
+  journalMemories: JournalEntry[];
   places: PokemonPlace[];
   onEditProfile: () => void;
   onAddPokemon: () => void;
@@ -1303,7 +1355,11 @@ function DashboardPage({
           onEditProfile={onEditProfile}
           partnerCount={ownedPokemon.length}
           partyCount={party.length}
-          memoryCount={releaseMemories.length + evolutionMemories.length}
+          memoryCount={
+            releaseMemories.length +
+            evolutionMemories.length +
+            journalMemories.length
+          }
         />
         <JourneyCard trainer={trainer} />
       </div>
@@ -1320,6 +1376,7 @@ function DashboardPage({
       <JournalPreview
         releaseMemories={releaseMemories}
         evolutionMemories={evolutionMemories}
+        journalMemories={journalMemories}
       />
     </>
   );
@@ -1957,15 +2014,25 @@ function PlacesPage({
 function JournalPage({
   releaseMemories,
   evolutionMemories,
+  journalMemories,
   ownedPokemon,
-  onDeleteMemory,
+  onCreateMemory,
+  onEditMemory,
+  onDeleteJournalMemory,
+  onDeleteReleaseMemory,
+  onEditRelease,
   onEditEvolution,
   onUndoEvolution,
 }: {
   releaseMemories: ReleaseMemory[];
   evolutionMemories: EvolutionMemory[];
+  journalMemories: JournalEntry[];
   ownedPokemon: OwnedPokemon[];
-  onDeleteMemory: (memory: ReleaseMemory) => void;
+  onCreateMemory: () => void;
+  onEditMemory: (memory: JournalEntry) => void;
+  onDeleteJournalMemory: (memory: JournalEntry) => void;
+  onDeleteReleaseMemory: (memory: ReleaseMemory) => void;
+  onEditRelease: (memory: ReleaseMemory) => void;
   onEditEvolution: (memory: EvolutionMemory) => void;
   onUndoEvolution: (memory: EvolutionMemory) => void;
 }) {
@@ -1974,47 +2041,130 @@ function JournalPage({
 
   for (const memory of evolutionMemories) {
     const current = latestEvolutionByPokemon.get(memory.pokemonId);
-
     if (!current || memory.createdAt > current.createdAt) {
       latestEvolutionByPokemon.set(memory.pokemonId, memory);
     }
   }
 
-  const journalEntries = [
+  const entries = [
+    ...journalMemories.map((memory) => ({ kind: "journal" as const, memory })),
     ...releaseMemories.map((memory) => ({ kind: "release" as const, memory })),
     ...evolutionMemories.map((memory) => ({ kind: "evolution" as const, memory })),
-  ].sort((a, b) => b.memory.createdAt.localeCompare(a.memory.createdAt));
+  ].sort((a, b) => {
+    const dateCompare = getMemoryTimelineDate(b.memory).localeCompare(
+      getMemoryTimelineDate(a.memory),
+    );
+    return dateCompare || b.memory.createdAt.localeCompare(a.memory.createdAt);
+  });
 
   return (
     <section className="journal-page">
-      <header className="collection-page-header">
+      <header className="collection-page-header journal-page-header">
         <div>
           <span className="section-kicker">Your shared history</span>
           <h1>Journey journal</h1>
           <p>
-            Evolutions and released companions remain part of your story with
-            the dates, places, methods, reasons, and notes you record.
+            Record the whole adventure: meeting partners, beating Gyms,
+            earning badges, battles, trips, evolutions, farewells, and the
+            small moments that make the journey yours.
           </p>
         </div>
-        <div className="journal-count-card">
-          <strong>{journalEntries.length}</strong>
-          <span>{journalEntries.length === 1 ? "Recorded memory" : "Recorded memories"}</span>
+        <div className="journal-header-actions">
+          <div className="journal-count-card">
+            <strong>{entries.length}</strong>
+            <span>{entries.length === 1 ? "Recorded memory" : "Recorded memories"}</span>
+          </div>
+          <button className="primary-button" type="button" onClick={onCreateMemory}>
+            <span>＋</span> New journal entry
+          </button>
         </div>
       </header>
 
-      {journalEntries.length === 0 ? (
+      {entries.length === 0 ? (
         <div className="collection-empty-state journal-empty-state">
           <div className="journal-empty-icon large">▤</div>
           <span className="section-kicker">No memories recorded</span>
-          <h2>Your companions' milestones will appear here.</h2>
+          <h2>Start writing your Trainer story.</h2>
           <p>
-            Evolve a Pokémon or record a farewell to begin building the
-            timeline of your journey.
+            Add a Gym victory, a difficult battle, a trip to a new city, or
+            anything else you want to remember.
           </p>
+          <button className="primary-button" type="button" onClick={onCreateMemory}>
+            <span>＋</span> Write the first entry
+          </button>
         </div>
       ) : (
         <div className="release-memory-list">
-          {journalEntries.map((entry) => {
+          {entries.map((entry) => {
+            if (entry.kind === "journal") {
+              const memory = entry.memory;
+              const meta = journalKindMeta[memory.kind];
+              const leadPokemon = memory.pokemon[0];
+
+              return (
+                <article className="release-memory-card general-journal-card" key={`journal-${memory.id}`}>
+                  <div className="general-journal-visual">
+                    {leadPokemon && getJournalParticipantArtwork(leadPokemon) ? (
+                      <div className="general-journal-pokemon-art" style={getTypeStyle(leadPokemon.types)}>
+                        <div className="release-memory-glow" />
+                        <img src={getJournalParticipantArtwork(leadPokemon)} alt={leadPokemon.displayName} />
+                      </div>
+                    ) : (
+                      <div className={`general-journal-icon journal-kind-${memory.kind}`}>
+                        {meta.icon}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="release-memory-content">
+                    <div className="release-memory-heading">
+                      <div>
+                        <span className="release-memory-label general-memory-label">{meta.label}</span>
+                        <h2>{memory.title}</h2>
+                        {memory.kind === "pokemon-met" && leadPokemon && (
+                          <p>#{String(leadPokemon.speciesId).padStart(4, "0")} · {leadPokemon.displayName}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="release-memory-meta">
+                      <span>{formatDisplayDate(memory.eventDate)}</span>
+                      <span>{memory.location || "Location not recorded"}</span>
+                    </div>
+
+                    <div className="release-memory-story general-memory-story">
+                      <strong>{memory.kind === "pokemon-met" ? "How we met" : "What happened"}</strong>
+                      <p>{memory.description || "No notes recorded yet."}</p>
+                    </div>
+
+                    {memory.pokemon.length > 0 && (
+                      <div className="journal-participant-row">
+                        <strong>Pokémon involved</strong>
+                        <div className="journal-participant-chips">
+                          {memory.pokemon.map((participant) => (
+                            <span className="journal-participant-chip" key={participant.originalPokemonId}>
+                              {getJournalParticipantArtwork(participant) && (
+                                <img src={getJournalParticipantArtwork(participant)} alt="" />
+                              )}
+                              {getJournalParticipantName(participant)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="release-memory-footer">
+                      <span>{memory.kind === "pokemon-met" ? "Linked to this Pokémon's meeting story." : "Personal journal entry"}</span>
+                      <div className="memory-action-row">
+                        <button className="secondary-memory-button" type="button" onClick={() => onEditMemory(memory)}>Edit entry</button>
+                        <button className="delete-memory-button" type="button" onClick={() => onDeleteJournalMemory(memory)}>Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              );
+            }
+
             if (entry.kind === "evolution") {
               const memory = entry.memory;
               const name = getEvolutionMemoryName(memory);
@@ -2022,103 +2172,28 @@ function JournalPage({
               const canUndo = isLatest && activePokemonIds.has(memory.pokemonId);
 
               return (
-                <article
-                  className="release-memory-card evolution-memory-card"
-                  style={getTypeStyle(memory.to.types)}
-                  key={`evolution-${memory.id}`}
-                >
+                <article className="release-memory-card evolution-memory-card" style={getTypeStyle(memory.to.types)} key={`evolution-${memory.id}`}>
                   <div className="evolution-memory-art-pair">
-                    <div
-                      className="release-memory-art compact-art before-art"
-                      style={getTypeStyle(memory.from.types)}
-                    >
+                    <div className="release-memory-art compact-art before-art" style={getTypeStyle(memory.from.types)}>
                       <div className="release-memory-glow" />
-                      {getSnapshotArtwork(memory.from, memory.isShiny) ? (
-                        <img
-                          src={getSnapshotArtwork(memory.from, memory.isShiny)}
-                          alt={memory.from.displayName}
-                        />
-                      ) : (
-                        <span className="missing-art">?</span>
-                      )}
+                      {getSnapshotArtwork(memory.from, memory.isShiny) ? <img src={getSnapshotArtwork(memory.from, memory.isShiny)} alt={memory.from.displayName} /> : <span className="missing-art">?</span>}
                       <small>{memory.from.displayName}</small>
                     </div>
                     <span className="evolution-art-arrow">→</span>
-                    <div
-                      className="release-memory-art compact-art after-art"
-                      style={getTypeStyle(memory.to.types)}
-                    >
+                    <div className="release-memory-art compact-art after-art" style={getTypeStyle(memory.to.types)}>
                       <div className="release-memory-glow" />
-                      {getSnapshotArtwork(memory.to, memory.isShiny) ? (
-                        <img
-                          src={getSnapshotArtwork(memory.to, memory.isShiny)}
-                          alt={memory.to.displayName}
-                        />
-                      ) : (
-                        <span className="missing-art">?</span>
-                      )}
+                      {getSnapshotArtwork(memory.to, memory.isShiny) ? <img src={getSnapshotArtwork(memory.to, memory.isShiny)} alt={memory.to.displayName} /> : <span className="missing-art">?</span>}
                       <small>{memory.to.displayName}</small>
                     </div>
                   </div>
-
                   <div className="release-memory-content">
-                    <div className="release-memory-heading">
-                      <div>
-                        <span className="release-memory-label evolution-label">
-                          Evolution memory
-                        </span>
-                        <h2>{name}</h2>
-                        <p>
-                          {memory.from.displayName} → {memory.to.displayName}
-                        </p>
-                      </div>
-                      {memory.isShiny && <span className="shiny-star">✦</span>}
-                    </div>
-
-                    <div className="release-memory-meta">
-                      <span>{formatDisplayDate(memory.evolutionDate)}</span>
-                      <span>{memory.evolutionLocation || "Location not recorded"}</span>
-                      <span>{memory.to.formLabel}</span>
-                    </div>
-
-                    <div className="release-memory-story evolution-method-story">
-                      <strong>How the evolution happened</strong>
-                      <p>{memory.evolutionMethod || "Method not recorded"}</p>
-                    </div>
-
-                    {memory.evolutionNotes && (
-                      <div className="release-memory-story farewell">
-                        <strong>Evolution notes</strong>
-                        <p>{memory.evolutionNotes}</p>
-                      </div>
-                    )}
-
+                    <div className="release-memory-heading"><div><span className="release-memory-label evolution-label">Evolution memory</span><h2>{name}</h2><p>{memory.from.displayName} → {memory.to.displayName}</p></div>{memory.isShiny && <span className="shiny-star">✦</span>}</div>
+                    <div className="release-memory-meta"><span>{formatDisplayDate(memory.evolutionDate)}</span><span>{memory.evolutionLocation || "Location not recorded"}</span><span>{memory.to.formLabel}</span></div>
+                    <div className="release-memory-story evolution-method-story"><strong>How the evolution happened</strong><p>{memory.evolutionMethod || "Method not recorded"}</p></div>
+                    {memory.evolutionNotes && <div className="release-memory-story farewell"><strong>Evolution notes</strong><p>{memory.evolutionNotes}</p></div>}
                     <div className="release-memory-footer evolution-memory-footer">
-                      <span>
-                        {canUndo
-                          ? "This is the latest evolution and can be undone."
-                          : activePokemonIds.has(memory.pokemonId)
-                            ? "Undo later stages first to return to this point."
-                            : "This companion is no longer active in your journey."}
-                      </span>
-                      <div className="memory-action-row">
-                        <button
-                          className="secondary-memory-button"
-                          type="button"
-                          onClick={() => onEditEvolution(memory)}
-                        >
-                          Edit details
-                        </button>
-                        {canUndo && (
-                          <button
-                            className="undo-evolution-button"
-                            type="button"
-                            onClick={() => onUndoEvolution(memory)}
-                          >
-                            Undo evolution
-                          </button>
-                        )}
-                      </div>
+                      <span>{canUndo ? "This is the latest evolution and can be undone." : activePokemonIds.has(memory.pokemonId) ? "Undo later stages first to return to this point." : "This companion is no longer active in your journey."}</span>
+                      <div className="memory-action-row"><button className="secondary-memory-button" type="button" onClick={() => onEditEvolution(memory)}>Edit details</button>{canUndo && <button className="undo-evolution-button" type="button" onClick={() => onUndoEvolution(memory)}>Undo evolution</button>}</div>
                     </div>
                   </div>
                 </article>
@@ -2127,71 +2202,15 @@ function JournalPage({
 
             const memory = entry.memory;
             const name = getReleaseMemoryName(memory);
-
             return (
-              <article
-                className="release-memory-card"
-                style={getTypeStyle(memory.types)}
-                key={`release-${memory.id}`}
-              >
-                <div className="release-memory-art">
-                  <div className="release-memory-glow" />
-                  {getReleaseMemoryArtwork(memory) ? (
-                    <img
-                      src={getReleaseMemoryArtwork(memory)}
-                      alt={memory.displayName}
-                    />
-                  ) : (
-                    <span className="missing-art">?</span>
-                  )}
-                </div>
-
+              <article className="release-memory-card" style={getTypeStyle(memory.types)} key={`release-${memory.id}`}>
+                <div className="release-memory-art"><div className="release-memory-glow" />{getReleaseMemoryArtwork(memory) ? <img src={getReleaseMemoryArtwork(memory)} alt={memory.displayName} /> : <span className="missing-art">?</span>}</div>
                 <div className="release-memory-content">
-                  <div className="release-memory-heading">
-                    <div>
-                      <span className="release-memory-label">
-                        Released companion
-                      </span>
-                      <h2>{name}</h2>
-                      <p>
-                        #{String(memory.speciesId).padStart(4, "0")} · {memory.displayName}
-                      </p>
-                    </div>
-                    {memory.isShiny && <span className="shiny-star">✦</span>}
-                  </div>
-
-                  <div className="release-memory-meta">
-                    <span>{formatDisplayDate(memory.releaseDate)}</span>
-                    <span>{memory.releaseLocation || "Location not recorded"}</span>
-                    <span>
-                      Previously {memory.previousStatus === "party" ? "travelling" : "in reserve"}
-                    </span>
-                  </div>
-
-                  <div className="release-memory-story">
-                    <strong>Why they were released</strong>
-                    <p>{memory.releaseReason}</p>
-                  </div>
-
-                  {memory.farewellNote && (
-                    <div className="release-memory-story farewell">
-                      <strong>Farewell note</strong>
-                      <p>{memory.farewellNote}</p>
-                    </div>
-                  )}
-
-                  <div className="release-memory-footer">
-                    <span>
-                      Met at {memory.metLocation || "an unrecorded place"}
-                    </span>
-                    <button
-                      className="delete-memory-button"
-                      type="button"
-                      onClick={() => onDeleteMemory(memory)}
-                    >
-                      Delete memory
-                    </button>
-                  </div>
+                  <div className="release-memory-heading"><div><span className="release-memory-label">Released companion</span><h2>{name}</h2><p>#{String(memory.speciesId).padStart(4, "0")} · {memory.displayName}</p></div>{memory.isShiny && <span className="shiny-star">✦</span>}</div>
+                  <div className="release-memory-meta"><span>{formatDisplayDate(memory.releaseDate)}</span><span>{memory.releaseLocation || "Location not recorded"}</span><span>Previously {memory.previousStatus === "party" ? "travelling" : "in reserve"}</span></div>
+                  <div className="release-memory-story"><strong>Why they were released</strong><p>{memory.releaseReason}</p></div>
+                  {memory.farewellNote && <div className="release-memory-story farewell"><strong>Farewell note</strong><p>{memory.farewellNote}</p></div>}
+                  <div className="release-memory-footer"><span>Met at {memory.metLocation || "an unrecorded place"}</span><div className="memory-action-row"><button className="secondary-memory-button" type="button" onClick={() => onEditRelease(memory)}>Edit details</button><button className="delete-memory-button" type="button" onClick={() => onDeleteReleaseMemory(memory)}>Delete memory</button></div></div>
                 </div>
               </article>
             );
@@ -4265,6 +4284,132 @@ function EditEvolutionMemoryModal({
   );
 }
 
+function JournalEntryModal({
+  entry,
+  ownedPokemon,
+  onClose,
+  onSaved,
+}: {
+  entry?: JournalEntry;
+  ownedPokemon: OwnedPokemon[];
+  onClose: () => void;
+  onSaved: (entry: JournalEntry) => void;
+}) {
+  const isMeetingEntry = entry?.kind === "pokemon-met";
+  const [kind, setKind] = useState<JournalEntryKind>(entry?.kind ?? "journey");
+  const [title, setTitle] = useState(entry?.title ?? "");
+  const [eventDate, setEventDate] = useState(entry?.eventDate ?? todayAsInputValue());
+  const [location, setLocation] = useState(entry?.location ?? "");
+  const [description, setDescription] = useState(entry?.description ?? "");
+  const [pokemonIds, setPokemonIds] = useState<string[]>(entry?.pokemonIds ?? []);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useModalBodyLock(onClose, isSaving);
+
+  const togglePokemon = (id: string) => {
+    if (isMeetingEntry) return;
+    setPokemonIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setErrorMessage("");
+    if (!title.trim()) { setErrorMessage("Give this memory a title."); return; }
+    if (!eventDate) { setErrorMessage("Choose when this memory happened."); return; }
+
+    try {
+      setIsSaving(true);
+      const saved = await saveJournalEntry({
+        kind,
+        title,
+        eventDate,
+        location,
+        description,
+        pokemonIds,
+        sourcePokemonId: entry?.sourcePokemonId,
+      }, entry?.id);
+      onSaved(saved);
+    } catch (error) {
+      console.error("Could not save journal entry:", error);
+      setErrorMessage(error instanceof Error ? error.message : "That journal entry could not be saved.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="profile-modal journal-entry-modal" role="dialog" aria-modal="true" aria-labelledby="journal-entry-modal-title">
+        <header className="profile-modal-header">
+          <div>
+            <span className="section-kicker">{entry ? "Edit a memory" : "Write your story"}</span>
+            <h2 id="journal-entry-modal-title">{entry ? entry.title : "New journal entry"}</h2>
+            <p>{isMeetingEntry ? "This entry is linked to the Pokémon's meeting details. Changes to the date, place, or story will update both." : "Record a Gym victory, badge, battle, trip, achievement, or any moment you want to remember."}</p>
+          </div>
+          <button className="modal-close-button" type="button" onClick={onClose} disabled={isSaving} aria-label="Close journal editor">×</button>
+        </header>
+
+        <form className="profile-form journal-entry-form" onSubmit={handleSubmit}>
+          <div className="form-grid pokemon-form-grid">
+            <label className="form-field">
+              <span>Entry type</span>
+              <select value={kind} onChange={(event) => setKind(event.target.value as JournalEntryKind)} disabled={isMeetingEntry}>
+                {isMeetingEntry && <option value="pokemon-met">Pokémon meeting</option>}
+                {!isMeetingEntry && <><option value="gym">Gym victory</option><option value="badge">Badge earned</option><option value="battle">Battle</option><option value="journey">Journey moment</option><option value="bond">Pokémon bond</option><option value="achievement">Achievement</option><option value="note">Journal note</option><option value="custom">Custom memory</option></>}
+              </select>
+            </label>
+            <label className="form-field"><span>Date</span><input type="date" value={eventDate} onChange={(event) => setEventDate(event.target.value)} required /></label>
+            <label className="form-field form-field-full"><span>Title</span><input type="text" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} placeholder={kind === "gym" ? "Defeated Whitney at Goldenrod Gym" : "Give this memory a name"} required /><small>{title.length}/120 characters</small></label>
+            <label className="form-field form-field-full"><span>Where did it happen? (optional)</span><input type="text" value={location} onChange={(event) => setLocation(event.target.value)} maxLength={120} placeholder="Goldenrod Gym, Route 29, Ecruteak City..." /></label>
+            <label className="form-field form-field-full"><span>{isMeetingEntry ? "How did you meet?" : "What happened?"}</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={6} maxLength={1200} placeholder={kind === "gym" ? "How did the Gym challenge go? Who battled? What made it memorable?" : "Write the story of this moment..."} /><small>{description.length}/1200 characters</small></label>
+          </div>
+
+          {!isMeetingEntry && (
+            <div className="journal-pokemon-picker">
+              <div><span className="section-kicker">Pokémon involved</span><h3>Who was part of this memory?</h3><p>Optional — select as many of your current partners as you want.</p></div>
+              {ownedPokemon.length === 0 ? <p className="journal-picker-empty">Add a Pokémon first if you want to attach companions to this entry.</p> : <div className="journal-pokemon-picker-grid">{ownedPokemon.map((pokemon) => { const selected = pokemonIds.includes(pokemon.id); return <button className={selected ? "journal-pokemon-option selected" : "journal-pokemon-option"} type="button" onClick={() => togglePokemon(pokemon.id)} key={pokemon.id}><span className="journal-pokemon-option-art" style={getTypeStyle(pokemon.types)}>{getArtwork(pokemon) && <img src={getArtwork(pokemon)} alt="" />}</span><span><strong>{getCompanionName(pokemon)}</strong><small>{pokemon.displayName}</small></span><b>{selected ? "✓" : "+"}</b></button>; })}</div>}
+              {entry && entry.pokemon.some((participant) => !ownedPokemon.some((pokemon) => pokemon.id === participant.originalPokemonId)) && <p className="archived-participant-note">Released or otherwise archived Pokémon already attached to this memory will stay preserved when you save it.</p>}
+            </div>
+          )}
+
+          {errorMessage && <p className="form-error" role="alert">{errorMessage}</p>}
+          <div className="profile-form-footer"><div className="local-save-note"><span>✓</span>{isMeetingEntry ? "Meeting details stay linked to the Pokémon profile" : "Saved to your local journey timeline"}</div><div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose} disabled={isSaving}>Cancel</button><button className="primary-button" type="submit" disabled={isSaving}>{isSaving ? "Saving..." : entry ? "Save changes" : "Add to journal"}</button></div></div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function EditReleaseMemoryModal({
+  memory,
+  onClose,
+  onSaved,
+}: {
+  memory: ReleaseMemory;
+  onClose: () => void;
+  onSaved: (memory: ReleaseMemory) => void;
+}) {
+  const [releaseDate, setReleaseDate] = useState(memory.releaseDate);
+  const [releaseLocation, setReleaseLocation] = useState(memory.releaseLocation);
+  const [releaseReason, setReleaseReason] = useState(memory.releaseReason);
+  const [farewellNote, setFarewellNote] = useState(memory.farewellNote);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  useModalBodyLock(onClose, isSaving);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); setErrorMessage("");
+    if (!releaseDate) { setErrorMessage("Choose the release date."); return; }
+    if (!releaseReason.trim()) { setErrorMessage("Record why this Pokémon was released."); return; }
+    try { setIsSaving(true); const saved = await updateReleaseMemory(memory.id, { releaseDate, releaseLocation, releaseReason, farewellNote }); onSaved(saved); }
+    catch (error) { console.error("Could not update release memory:", error); setErrorMessage(error instanceof Error ? error.message : "That release memory could not be updated."); }
+    finally { setIsSaving(false); }
+  };
+
+  return <div className="modal-backdrop" role="presentation"><section className="profile-modal" role="dialog" aria-modal="true"><header className="profile-modal-header"><div><span className="section-kicker">Farewell memory</span><h2>Edit {getReleaseMemoryName(memory)}'s release</h2><p>Correct the date, place, reason, or farewell note without restoring the Pokémon.</p></div><button className="modal-close-button" type="button" onClick={onClose} disabled={isSaving}>×</button></header><form className="profile-form" onSubmit={handleSubmit}><div className="form-grid pokemon-form-grid"><label className="form-field"><span>Date released</span><input type="date" value={releaseDate} onChange={(e) => setReleaseDate(e.target.value)} required /></label><label className="form-field"><span>Release location</span><input type="text" value={releaseLocation} onChange={(e) => setReleaseLocation(e.target.value)} maxLength={120} /></label><label className="form-field form-field-full"><span>Why were they released?</span><textarea value={releaseReason} onChange={(e) => setReleaseReason(e.target.value)} rows={4} maxLength={700} required /></label><label className="form-field form-field-full"><span>Farewell note (optional)</span><textarea value={farewellNote} onChange={(e) => setFarewellNote(e.target.value)} rows={5} maxLength={900} /></label></div>{errorMessage && <p className="form-error" role="alert">{errorMessage}</p>}<div className="profile-form-footer"><div className="local-save-note"><span>✓</span>The Pokémon remains released</div><div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose} disabled={isSaving}>Cancel</button><button className="primary-button" type="submit" disabled={isSaving}>{isSaving ? "Saving..." : "Save memory"}</button></div></div></form></section></div>;
+}
+
 function ReleasePokemonModal({
   pokemon,
   onClose,
@@ -5139,6 +5284,11 @@ function AppShell() {
     useState<OwnedPokemon | null>(null);
   const [evolutionMemoryBeingEdited, setEvolutionMemoryBeingEdited] =
     useState<EvolutionMemory | null>(null);
+  const [isJournalEntryCreatorOpen, setIsJournalEntryCreatorOpen] = useState(false);
+  const [journalEntryBeingEdited, setJournalEntryBeingEdited] =
+    useState<JournalEntry | null>(null);
+  const [releaseMemoryBeingEdited, setReleaseMemoryBeingEdited] =
+    useState<ReleaseMemory | null>(null);
   const [placeEditorState, setPlaceEditorState] =
     useState<{ place?: PokemonPlace } | null>(null);
   const [pokemonBeingRelocated, setPokemonBeingRelocated] =
@@ -5187,6 +5337,12 @@ function AppShell() {
   const evolutionMemories: EvolutionMemory[] =
     useLiveQuery(
       () => db.evolutionMemories.orderBy("createdAt").reverse().toArray(),
+      [],
+    ) ?? [];
+
+  const journalMemories: JournalEntry[] =
+    useLiveQuery(
+      () => db.journalEntries.orderBy("eventDate").reverse().toArray(),
       [],
     ) ?? [];
 
@@ -5284,6 +5440,20 @@ function AppShell() {
     }
   };
 
+  const handleDeleteJournalMemory = async (memory: JournalEntry) => {
+    const confirmed = window.confirm(
+      `Delete “${memory.title}” from the journal? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    try {
+      await deleteJournalEntry(memory.id);
+      setToastMessage(`“${memory.title}” was deleted from the journal.`);
+    } catch (error) {
+      console.error("Could not delete journal entry:", error);
+      setToastMessage("That journal entry could not be deleted.");
+    }
+  };
+
   const handleDeleteMemory = async (memory: ReleaseMemory) => {
     const name = getReleaseMemoryName(memory);
     const confirmed = window.confirm(
@@ -5352,6 +5522,7 @@ function AppShell() {
                 party={party}
                 releaseMemories={releaseMemories}
                 evolutionMemories={evolutionMemories}
+                journalMemories={journalMemories}
                 places={places}
                 onEditProfile={() => setIsProfileEditorOpen(true)}
                 onAddPokemon={() => setIsPokemonCreatorOpen(true)}
@@ -5411,8 +5582,13 @@ function AppShell() {
               <JournalPage
                 releaseMemories={releaseMemories}
                 evolutionMemories={evolutionMemories}
+                journalMemories={journalMemories}
                 ownedPokemon={ownedPokemon}
-                onDeleteMemory={(memory) => void handleDeleteMemory(memory)}
+                onCreateMemory={() => setIsJournalEntryCreatorOpen(true)}
+                onEditMemory={(memory) => setJournalEntryBeingEdited(memory)}
+                onDeleteJournalMemory={(memory) => void handleDeleteJournalMemory(memory)}
+                onDeleteReleaseMemory={(memory) => void handleDeleteMemory(memory)}
+                onEditRelease={(memory) => setReleaseMemoryBeingEdited(memory)}
                 onEditEvolution={(memory) => setEvolutionMemoryBeingEdited(memory)}
                 onUndoEvolution={(memory) => void handleUndoEvolution(memory)}
               />
@@ -5529,6 +5705,40 @@ function AppShell() {
               placePokemonPickerTarget.locationId,
             )
           }
+        />
+      )}
+
+      {isJournalEntryCreatorOpen && (
+        <JournalEntryModal
+          ownedPokemon={ownedPokemon}
+          onClose={() => setIsJournalEntryCreatorOpen(false)}
+          onSaved={(memory) => {
+            setIsJournalEntryCreatorOpen(false);
+            setToastMessage(`“${memory.title}” was added to your journal.`);
+          }}
+        />
+      )}
+
+      {journalEntryBeingEdited && (
+        <JournalEntryModal
+          entry={journalEntryBeingEdited}
+          ownedPokemon={ownedPokemon}
+          onClose={() => setJournalEntryBeingEdited(null)}
+          onSaved={(memory) => {
+            setJournalEntryBeingEdited(null);
+            setToastMessage(`“${memory.title}” was updated.`);
+          }}
+        />
+      )}
+
+      {releaseMemoryBeingEdited && (
+        <EditReleaseMemoryModal
+          memory={releaseMemoryBeingEdited}
+          onClose={() => setReleaseMemoryBeingEdited(null)}
+          onSaved={(memory) => {
+            setReleaseMemoryBeingEdited(null);
+            setToastMessage(`${getReleaseMemoryName(memory)}'s farewell memory was updated.`);
+          }}
         />
       )}
 
