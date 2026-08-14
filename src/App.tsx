@@ -5167,37 +5167,32 @@ function AppShell() {
   }, [toastMessage]);
 
   const trainer =
-    useLiveQuery<TrainerProfile | undefined>(
+    useLiveQuery(
       () => db.trainerProfiles.get(PRIMARY_TRAINER_ID),
       [],
-      DEFAULT_TRAINER,
     ) ?? DEFAULT_TRAINER;
 
-  const ownedPokemon =
-    useLiveQuery<OwnedPokemon[]>(
+  const ownedPokemon: OwnedPokemon[] =
+    useLiveQuery(
       () => db.ownedPokemon.orderBy("createdAt").reverse().toArray(),
       [],
-      [],
     ) ?? [];
 
-  const releaseMemories =
-    useLiveQuery<ReleaseMemory[]>(
+  const releaseMemories: ReleaseMemory[] =
+    useLiveQuery(
       () => db.releaseMemories.orderBy("createdAt").reverse().toArray(),
       [],
-      [],
     ) ?? [];
 
-  const evolutionMemories =
-    useLiveQuery<EvolutionMemory[]>(
+  const evolutionMemories: EvolutionMemory[] =
+    useLiveQuery(
       () => db.evolutionMemories.orderBy("createdAt").reverse().toArray(),
       [],
-      [],
     ) ?? [];
 
-  const places =
-    useLiveQuery<PokemonPlace[]>(
+  const places: PokemonPlace[] =
+    useLiveQuery(
       () => db.pokemonPlaces.orderBy("name").toArray(),
-      [],
       [],
     ) ?? [];
 
