@@ -524,6 +524,257 @@ class TrainerJourneyDatabase extends Dexie {
 
 export const db = new TrainerJourneyDatabase();
 
+export type TrainerJourneySaveScope = "full" | "pokemon" | "journal";
+export type TrainerJourneyImportMode = "merge" | "replace";
+
+export type TrainerJourneySaveData = {
+  trainerProfiles?: TrainerProfile[];
+  ownedPokemon?: OwnedPokemon[];
+  pokemonPlaces?: PokemonPlace[];
+  journalEntries?: JournalEntry[];
+  releaseMemories?: ReleaseMemory[];
+  evolutionMemories?: EvolutionMemory[];
+};
+
+export type TrainerJourneySaveFile = {
+  format: "trainer-journey-save";
+  version: 1;
+  scope: TrainerJourneySaveScope;
+  exportedAt: string;
+  databaseVersion: 8;
+  data: TrainerJourneySaveData;
+};
+
+export type TrainerJourneySaveSummary = {
+  trainerProfiles: number;
+  pokemon: number;
+  places: number;
+  journalEntries: number;
+  releaseMemories: number;
+  evolutionMemories: number;
+};
+
+export type TrainerJourneyImportResult = TrainerJourneySaveSummary & {
+  scope: TrainerJourneySaveScope;
+  mode: TrainerJourneyImportMode;
+};
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function saveArray<T>(value: unknown): T[] | undefined {
+  return Array.isArray(value) ? (value as T[]) : undefined;
+}
+
+function assertTrainerJourneySave(value: unknown): TrainerJourneySaveFile {
+  if (!isObjectRecord(value)) {
+    throw new Error("This file does not contain a Trainer Journey save.");
+  }
+
+  if (value.format !== "trainer-journey-save") {
+    throw new Error(
+      "This JSON file is not a Trainer Journey backup or transfer file.",
+    );
+  }
+
+  if (value.version !== 1) {
+    throw new Error(
+      `This save uses unsupported format version ${String(value.version)}.`,
+    );
+  }
+
+  if (
+    value.scope !== "full" &&
+    value.scope !== "pokemon" &&
+    value.scope !== "journal"
+  ) {
+    throw new Error("This save file has an unknown export scope.");
+  }
+
+  if (!isObjectRecord(value.data)) {
+    throw new Error("This Trainer Journey save does not contain a data section.");
+  }
+
+  const data: TrainerJourneySaveData = {
+    trainerProfiles: saveArray<TrainerProfile>(value.data.trainerProfiles),
+    ownedPokemon: saveArray<OwnedPokemon>(value.data.ownedPokemon),
+    pokemonPlaces: saveArray<PokemonPlace>(value.data.pokemonPlaces),
+    journalEntries: saveArray<JournalEntry>(value.data.journalEntries),
+    releaseMemories: saveArray<ReleaseMemory>(value.data.releaseMemories),
+    evolutionMemories: saveArray<EvolutionMemory>(value.data.evolutionMemories),
+  };
+
+  return {
+    format: "trainer-journey-save",
+    version: 1,
+    scope: value.scope,
+    exportedAt:
+      typeof value.exportedAt === "string"
+        ? value.exportedAt
+        : new Date().toISOString(),
+    databaseVersion: 8,
+    data,
+  };
+}
+
+export function parseTrainerJourneySave(text: string) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("That file is not valid JSON.");
+  }
+  return assertTrainerJourneySave(parsed);
+}
+
+export function summarizeTrainerJourneySave(
+  save: TrainerJourneySaveFile,
+): TrainerJourneySaveSummary {
+  return {
+    trainerProfiles: save.data.trainerProfiles?.length ?? 0,
+    pokemon: save.data.ownedPokemon?.length ?? 0,
+    places: save.data.pokemonPlaces?.length ?? 0,
+    journalEntries: save.data.journalEntries?.length ?? 0,
+    releaseMemories: save.data.releaseMemories?.length ?? 0,
+    evolutionMemories: save.data.evolutionMemories?.length ?? 0,
+  };
+}
+
+export async function createTrainerJourneySave(
+  scope: TrainerJourneySaveScope,
+): Promise<TrainerJourneySaveFile> {
+  const data: TrainerJourneySaveData = {};
+
+  if (scope === "full") {
+    data.trainerProfiles = await db.trainerProfiles.toArray();
+    data.ownedPokemon = await db.ownedPokemon.toArray();
+    data.pokemonPlaces = await db.pokemonPlaces.toArray();
+    data.journalEntries = await db.journalEntries.toArray();
+    data.releaseMemories = await db.releaseMemories.toArray();
+    data.evolutionMemories = await db.evolutionMemories.toArray();
+  } else if (scope === "pokemon") {
+    data.ownedPokemon = await db.ownedPokemon.toArray();
+    data.pokemonPlaces = await db.pokemonPlaces.toArray();
+  } else {
+    data.journalEntries = await db.journalEntries.toArray();
+    data.releaseMemories = await db.releaseMemories.toArray();
+    data.evolutionMemories = await db.evolutionMemories.toArray();
+  }
+
+  return {
+    format: "trainer-journey-save",
+    version: 1,
+    scope,
+    exportedAt: new Date().toISOString(),
+    databaseVersion: 8,
+    data,
+  };
+}
+
+async function normalizeMergedParty() {
+  const party = (await db.ownedPokemon.toArray())
+    .filter((pokemon) => pokemon.status === "party")
+    .sort((a, b) => {
+      const aSlot = a.partySlot ?? 99;
+      const bSlot = b.partySlot ?? 99;
+      if (aSlot !== bSlot) return aSlot - bSlot;
+      return a.createdAt.localeCompare(b.createdAt);
+    });
+
+  const updates: OwnedPokemon[] = party.map((pokemon, index) => ({
+    ...pokemon,
+    status: index < 6 ? "party" : "reserve",
+    partySlot: index < 6 ? index + 1 : undefined,
+    updatedAt: pokemon.updatedAt,
+  }));
+
+  if (updates.length > 0) {
+    await db.ownedPokemon.bulkPut(updates);
+  }
+}
+
+export async function importTrainerJourneySave(
+  candidate: TrainerJourneySaveFile,
+  mode: TrainerJourneyImportMode,
+): Promise<TrainerJourneyImportResult> {
+  const save = assertTrainerJourneySave(candidate);
+  const data = save.data;
+
+  await db.transaction(
+    "rw",
+    [
+      db.trainerProfiles,
+      db.ownedPokemon,
+      db.pokemonPlaces,
+      db.journalEntries,
+      db.releaseMemories,
+      db.evolutionMemories,
+    ],
+    async () => {
+      if (mode === "replace") {
+        if (save.scope === "full") {
+          await Promise.all([
+            db.trainerProfiles.clear(),
+            db.ownedPokemon.clear(),
+            db.pokemonPlaces.clear(),
+            db.journalEntries.clear(),
+            db.releaseMemories.clear(),
+            db.evolutionMemories.clear(),
+          ]);
+        } else if (save.scope === "pokemon") {
+          await Promise.all([
+            db.ownedPokemon.clear(),
+            db.pokemonPlaces.clear(),
+          ]);
+        } else {
+          await Promise.all([
+            db.journalEntries.clear(),
+            db.releaseMemories.clear(),
+            db.evolutionMemories.clear(),
+          ]);
+        }
+      }
+
+      if (data.trainerProfiles?.length) {
+        await db.trainerProfiles.bulkPut(data.trainerProfiles);
+      }
+      if (data.pokemonPlaces?.length) {
+        await db.pokemonPlaces.bulkPut(data.pokemonPlaces);
+      }
+      if (data.ownedPokemon?.length) {
+        await db.ownedPokemon.bulkPut(data.ownedPokemon);
+      }
+      if (data.journalEntries?.length) {
+        await db.journalEntries.bulkPut(data.journalEntries);
+      }
+      if (data.releaseMemories?.length) {
+        await db.releaseMemories.bulkPut(data.releaseMemories);
+      }
+      if (data.evolutionMemories?.length) {
+        await db.evolutionMemories.bulkPut(data.evolutionMemories);
+      }
+
+      if (save.scope === "full" && !data.trainerProfiles?.length) {
+        await db.trainerProfiles.put(DEFAULT_TRAINER);
+      }
+
+      if (mode === "merge" && data.ownedPokemon?.length) {
+        await normalizeMergedParty();
+      }
+    },
+  );
+
+  await ensureTrainerProfile();
+
+  return {
+    ...summarizeTrainerJourneySave(save),
+    scope: save.scope,
+    mode,
+  };
+}
+
+
 export async function ensureTrainerProfile() {
   const existingProfile = await db.trainerProfiles.get(PRIMARY_TRAINER_ID);
 

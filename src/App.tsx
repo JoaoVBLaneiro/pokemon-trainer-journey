@@ -2,6 +2,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type ChangeEvent,
   type CSSProperties,
   type FormEvent,
 } from "react";
@@ -14,6 +15,7 @@ import {
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   addOwnedPokemon,
+  createTrainerJourneySave,
   db,
   DEFAULT_TRAINER,
   deleteJournalEntry,
@@ -21,14 +23,17 @@ import {
   deleteReleaseMemory,
   ensureTrainerProfile,
   evolveOwnedPokemon,
+  importTrainerJourneySave,
   movePokemonToLocation,
   movePokemonToParty,
+  parseTrainerJourneySave,
   PartyFullError,
   PRIMARY_TRAINER_ID,
   releaseOwnedPokemon,
   saveJournalEntry,
   savePokemonPlace,
   saveTrainerProfile,
+  summarizeTrainerJourneySave,
   undoLatestEvolution,
   updateEvolutionMemory,
   updateOwnedPokemon,
@@ -51,6 +56,9 @@ import {
   type PokemonSpeciesDetails,
   type PokemonSpeciesIndexEntry,
   type ReleaseMemory,
+  type TrainerJourneyImportMode,
+  type TrainerJourneySaveFile,
+  type TrainerJourneySaveScope,
   type TrainerProfile,
 } from "./db";
 import {
@@ -228,6 +236,7 @@ const navItems = [
   { to: "/places", label: "Places", icon: "⌖" },
   { to: "/habitat", label: "Habitat", icon: "♧" },
   { to: "/journal", label: "Journal", icon: "▤" },
+  { to: "/data", label: "Data", icon: "⇄" },
 ];
 
 function getInitials(name: string) {
@@ -2219,6 +2228,346 @@ function JournalPage({
           })}
         </div>
       )}
+    </section>
+  );
+}
+
+
+function downloadTrainerJourneySave(
+  save: TrainerJourneySaveFile,
+  scope: TrainerJourneySaveScope,
+) {
+  const date = new Date().toISOString().slice(0, 10);
+  const label =
+    scope === "full"
+      ? "full-save"
+      : scope === "pokemon"
+        ? "pokemon"
+        : "journal";
+  const blob = new Blob([JSON.stringify(save, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `trainer-journey-${label}-${date}.json`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function formatBackupDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown date";
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function DataManagementPage({
+  ownedPokemon,
+  places,
+  journalMemories,
+  releaseMemories,
+  evolutionMemories,
+  onToast,
+}: {
+  ownedPokemon: OwnedPokemon[];
+  places: PokemonPlace[];
+  journalMemories: JournalEntry[];
+  releaseMemories: ReleaseMemory[];
+  evolutionMemories: EvolutionMemory[];
+  onToast: (message: string) => void;
+}) {
+  const [exportingScope, setExportingScope] =
+    useState<TrainerJourneySaveScope | null>(null);
+  const [selectedSave, setSelectedSave] =
+    useState<TrainerJourneySaveFile | null>(null);
+  const [selectedFileName, setSelectedFileName] = useState("");
+  const [importMode, setImportMode] =
+    useState<TrainerJourneyImportMode>("merge");
+  const [isImporting, setIsImporting] = useState(false);
+  const [fileError, setFileError] = useState("");
+
+  const handleExport = async (scope: TrainerJourneySaveScope) => {
+    try {
+      setExportingScope(scope);
+      const save = await createTrainerJourneySave(scope);
+      downloadTrainerJourneySave(save, scope);
+      onToast(
+        scope === "full"
+          ? "Full Trainer Journey backup downloaded."
+          : scope === "pokemon"
+            ? "Pokémon collection downloaded."
+            : "Journal and memories downloaded.",
+      );
+    } catch (error) {
+      console.error("Could not export Trainer Journey data:", error);
+      onToast("That export could not be created.");
+    } finally {
+      setExportingScope(null);
+    }
+  };
+
+  const handleImportFile = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    setFileError("");
+    setSelectedSave(null);
+    setSelectedFileName("");
+
+    if (!file) return;
+
+    try {
+      const parsed = parseTrainerJourneySave(await file.text());
+      setSelectedSave(parsed);
+      setSelectedFileName(file.name);
+    } catch (error) {
+      console.error("Could not read Trainer Journey save:", error);
+      setFileError(
+        error instanceof Error
+          ? error.message
+          : "That backup file could not be read.",
+      );
+    }
+  };
+
+  const handleImport = async () => {
+    if (!selectedSave) return;
+
+    const scopeLabel =
+      selectedSave.scope === "full"
+        ? "the entire local Trainer Journey save"
+        : selectedSave.scope === "pokemon"
+          ? "the current Pokémon collection and Places"
+          : "the current Journal and memory history";
+
+    if (
+      importMode === "replace" &&
+      !window.confirm(
+        `Replace ${scopeLabel} with the contents of “${selectedFileName}”? ` +
+          "Anything in that section that is not in the backup will be removed.",
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setIsImporting(true);
+      const result = await importTrainerJourneySave(
+        selectedSave,
+        importMode,
+      );
+      const importedTotal =
+        result.pokemon +
+        result.places +
+        result.journalEntries +
+        result.releaseMemories +
+        result.evolutionMemories;
+      onToast(
+        `${importMode === "replace" ? "Restored" : "Imported"} ${importedTotal} journey record${
+          importedTotal === 1 ? "" : "s"
+        }.`,
+      );
+      setSelectedSave(null);
+      setSelectedFileName("");
+      setFileError("");
+    } catch (error) {
+      console.error("Could not import Trainer Journey save:", error);
+      setFileError(
+        error instanceof Error
+          ? error.message
+          : "That save could not be imported.",
+      );
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const selectedSummary = selectedSave
+    ? summarizeTrainerJourneySave(selectedSave)
+    : null;
+
+  return (
+    <section className="data-page">
+      <header className="page-header data-page-header">
+        <div>
+          <p className="eyebrow">Backup & transfer</p>
+          <h1>Your journey, portable.</h1>
+          <p className="header-description">
+            Export your save before changing browsers or devices, or move whole
+            collections and Journal history between Trainer Journey installs.
+          </p>
+        </div>
+      </header>
+
+      <div className="data-snapshot-strip">
+        <div><strong>{ownedPokemon.length}</strong><span>Active Pokémon</span></div>
+        <div><strong>{places.length}</strong><span>Places</span></div>
+        <div><strong>{journalMemories.length}</strong><span>Journal entries</span></div>
+        <div><strong>{releaseMemories.length + evolutionMemories.length}</strong><span>History memories</span></div>
+      </div>
+
+      <section className="data-panel">
+        <div className="data-panel-heading">
+          <div>
+            <span className="section-kicker">Export</span>
+            <h2>Download your data</h2>
+            <p>
+              Exports are human-readable JSON files. PokéAPI caches are not
+              included because they can be downloaded again automatically.
+            </p>
+          </div>
+        </div>
+
+        <div className="data-export-grid">
+          <article className="data-export-card featured">
+            <div className="data-export-icon">✦</div>
+            <div>
+              <span className="data-card-badge">Recommended</span>
+              <h3>Full save backup</h3>
+              <p>
+                Trainer profile, every active Pokémon, Places, Journal entries,
+                release memories, and evolution history.
+              </p>
+            </div>
+            <button className="primary-button" type="button" disabled={exportingScope !== null} onClick={() => void handleExport("full")}>
+              {exportingScope === "full" ? "Preparing..." : "Download full save"}
+            </button>
+          </article>
+
+          <article className="data-export-card">
+            <div className="data-export-icon">◉</div>
+            <div>
+              <h3>Pokémon collection</h3>
+              <p>
+                Mass export every active companion plus your Places, preserving
+                party status, homes, levels, moves, items, and personal details.
+              </p>
+            </div>
+            <button className="secondary-memory-button" type="button" disabled={exportingScope !== null} onClick={() => void handleExport("pokemon")}>
+              {exportingScope === "pokemon" ? "Preparing..." : "Export Pokémon"}
+            </button>
+          </article>
+
+          <article className="data-export-card">
+            <div className="data-export-icon">▤</div>
+            <div>
+              <h3>Journal & memories</h3>
+              <p>
+                Export custom Journal entries together with release and
+                evolution memories shown in the Journal timeline.
+              </p>
+            </div>
+            <button className="secondary-memory-button" type="button" disabled={exportingScope !== null} onClick={() => void handleExport("journal")}>
+              {exportingScope === "journal" ? "Preparing..." : "Export Journal"}
+            </button>
+          </article>
+        </div>
+      </section>
+
+      <section className="data-panel import-panel">
+        <div className="data-panel-heading">
+          <div>
+            <span className="section-kicker">Import</span>
+            <h2>Bring a save into this browser</h2>
+            <p>
+              Choose a JSON file created by Trainer Journey. You can inspect its
+              contents before anything is written to IndexedDB.
+            </p>
+          </div>
+        </div>
+
+        <label className="data-file-picker">
+          <input type="file" accept=".json,application/json" onChange={(event) => void handleImportFile(event)} disabled={isImporting} />
+          <span className="data-file-picker-icon">⇧</span>
+          <strong>{selectedFileName || "Choose a Trainer Journey JSON file"}</strong>
+          <small>
+            {selectedFileName
+              ? "File loaded — review it below before importing."
+              : "Full saves, Pokémon exports, and Journal exports are supported."}
+          </small>
+        </label>
+
+        {fileError && <p className="form-error data-import-error">{fileError}</p>}
+
+        {selectedSave && selectedSummary && (
+          <div className="data-import-preview">
+            <div className="data-import-preview-heading">
+              <div>
+                <span className="data-card-badge">
+                  {selectedSave.scope === "full"
+                    ? "Full save"
+                    : selectedSave.scope === "pokemon"
+                      ? "Pokémon collection"
+                      : "Journal & memories"}
+                </span>
+                <h3>{selectedFileName}</h3>
+                <p>Exported {formatBackupDate(selectedSave.exportedAt)}</p>
+              </div>
+              <span className="data-format-version">Save format v{selectedSave.version}</span>
+            </div>
+
+            <div className="data-import-counts">
+              {selectedSummary.pokemon > 0 && <span><strong>{selectedSummary.pokemon}</strong> Pokémon</span>}
+              {selectedSummary.places > 0 && <span><strong>{selectedSummary.places}</strong> Places</span>}
+              {selectedSummary.journalEntries > 0 && <span><strong>{selectedSummary.journalEntries}</strong> Journal entries</span>}
+              {selectedSummary.releaseMemories > 0 && <span><strong>{selectedSummary.releaseMemories}</strong> releases</span>}
+              {selectedSummary.evolutionMemories > 0 && <span><strong>{selectedSummary.evolutionMemories}</strong> evolutions</span>}
+              {selectedSummary.trainerProfiles > 0 && <span><strong>{selectedSummary.trainerProfiles}</strong> trainer profile</span>}
+            </div>
+
+            <div className="data-import-options">
+              <div>
+                <strong>Import mode</strong>
+                <p>
+                  Merge keeps existing records. Replace restores the section
+                  represented by this file from scratch.
+                </p>
+              </div>
+
+              <div className="data-mode-toggle" role="group" aria-label="Import mode">
+                <button type="button" className={importMode === "merge" ? "active" : ""} onClick={() => setImportMode("merge")} disabled={isImporting}>
+                  Merge
+                  <small>Keep what is already here</small>
+                </button>
+                <button type="button" className={importMode === "replace" ? "active danger" : ""} onClick={() => setImportMode("replace")} disabled={isImporting}>
+                  Replace
+                  <small>Restore this section exactly</small>
+                </button>
+              </div>
+            </div>
+
+            <div className="data-import-note">
+              <span>i</span>
+              <p>
+                Pokémon Merge preserves IDs so matching Journal references keep
+                working. If two merged saves would create more than six
+                travelling Pokémon, extra companions are safely moved to
+                reserve rather than deleted.
+              </p>
+            </div>
+
+            <button className="primary-button data-import-button" type="button" disabled={isImporting} onClick={() => void handleImport()}>
+              {isImporting ? "Importing..." : importMode === "replace" ? "Restore from this file" : "Merge into my journey"}
+            </button>
+          </div>
+        )}
+      </section>
+
+      <div className="data-local-note">
+        <span>⌂</span>
+        <div>
+          <strong>Your normal save is still browser-local.</strong>
+          <p>
+            These exports are the portable copy. Keep a full-save JSON somewhere
+            safe if this journey matters to you.
+          </p>
+        </div>
+      </div>
     </section>
   );
 }
@@ -5603,6 +5952,19 @@ function AppShell() {
                 onEditRelease={(memory) => setReleaseMemoryBeingEdited(memory)}
                 onEditEvolution={(memory) => setEvolutionMemoryBeingEdited(memory)}
                 onUndoEvolution={(memory) => void handleUndoEvolution(memory)}
+              />
+            }
+          />
+          <Route
+            path="/data"
+            element={
+              <DataManagementPage
+                ownedPokemon={ownedPokemon}
+                places={places}
+                journalMemories={journalMemories}
+                releaseMemories={releaseMemories}
+                evolutionMemories={evolutionMemories}
+                onToast={setToastMessage}
               />
             }
           />

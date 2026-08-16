@@ -51,7 +51,7 @@ type PendingHabitatInteraction = {
 };
 
 type HabitatTheme = "lab" | "training" | "garden" | "wild" | "camp" | "ranch" | "meadow";
-type HabitatSpot = "pond" | "shore" | "campfire" | "berries" | "flowers" | "monitor" | "training" | "tent" | "sand" | "trees" | "clearing";
+type HabitatSpot = "pond" | "shore" | "campfire" | "berries" | "flowers" | "monitor" | "training" | "tent" | "sand" | "trees" | "tree-perch" | "clearing";
 
 type HabitatSoloBeat = {
   activity: string;
@@ -311,6 +311,232 @@ function highestLevelPokemon(pokemon: OwnedPokemon[]) {
     }
     return hashString(candidate.id) < hashString(best.id) ? candidate : best;
   });
+}
+
+type HabitatMoveFamily = {
+  type: string;
+  moves: string[];
+};
+
+const habitatMoveFamilies: HabitatMoveFamily[] = [
+  { type: "fire", moves: ["ember", "flame-wheel", "flame-charge", "flamethrower", "fire-blast", "inferno", "overheat"] },
+  { type: "water", moves: ["bubble", "water-gun", "bubble-beam", "water-pulse", "surf", "hydro-pump"] },
+  { type: "electric", moves: ["thunder-shock", "spark", "electro-ball", "discharge", "thunderbolt", "thunder"] },
+  { type: "grass", moves: ["absorb", "mega-drain", "giga-drain"] },
+  { type: "grass", moves: ["leafage", "razor-leaf", "leaf-blade"] },
+  { type: "ice", moves: ["powder-snow", "icy-wind", "ice-beam", "blizzard"] },
+  { type: "flying", moves: ["gust", "air-cutter", "air-slash", "hurricane"] },
+  { type: "dragon", moves: ["dragon-breath", "dragon-pulse", "draco-meteor"] },
+  { type: "dark", moves: ["bite", "crunch"] },
+  { type: "normal", moves: ["echoed-voice", "round", "hyper-voice", "boomburst"] },
+  { type: "rock", moves: ["rock-throw", "rock-tomb", "rock-slide", "stone-edge"] },
+  { type: "ground", moves: ["mud-slap", "mud-shot", "bulldoze", "earth-power", "earthquake"] },
+  { type: "psychic", moves: ["confusion", "psybeam", "psychic"] },
+  { type: "ghost", moves: ["astonish", "shadow-sneak", "shadow-ball"] },
+  { type: "poison", moves: ["acid", "sludge", "sludge-bomb", "sludge-wave", "gunk-shot"] },
+  { type: "bug", moves: ["struggle-bug", "bug-bite", "x-scissor", "megahorn"] },
+];
+
+const habitatBoringSharedMoves = new Set([
+  "protect",
+  "detect",
+  "rest",
+  "sleep-talk",
+  "substitute",
+  "swagger",
+  "endure",
+]);
+
+function knownHabitatMoves(pokemon: OwnedPokemon) {
+  return (pokemon.moves ?? []).filter(
+    (move) => move && move.apiName && move.displayName,
+  );
+}
+
+function moveTypeEmote(type?: string) {
+  switch ((type ?? "").toLowerCase()) {
+    case "fire": return "🔥";
+    case "water": return "💧";
+    case "electric": return "⚡";
+    case "grass": return "🌿";
+    case "ice": return "❄";
+    case "fighting": return "🥊";
+    case "poison": return "☠";
+    case "ground": return "◆";
+    case "flying": return "☁";
+    case "psychic": return "✨";
+    case "bug": return "✿";
+    case "rock": return "◆";
+    case "ghost": return "👻";
+    case "dragon": return "✦";
+    case "dark": return "☾";
+    case "fairy": return "☆";
+    default: return "✦";
+  }
+}
+
+function movePracticeSpot(type: string | undefined, theme: HabitatTheme): HabitatSpot {
+  switch ((type ?? "").toLowerCase()) {
+    case "water":
+      return waterSpotForTheme(theme) ?? visiblePondSpotForTheme(theme) ?? "clearing";
+    case "grass":
+    case "bug":
+      return theme === "lab" || theme === "training" ? "clearing" : "trees";
+    case "ground":
+    case "rock":
+      return theme === "camp" ? "sand" : theme === "training" ? "training" : "clearing";
+    case "fighting":
+      return theme === "training" ? "training" : "clearing";
+    default:
+      return "clearing";
+  }
+}
+
+function sharedMovePracticeBeat(
+  a: OwnedPokemon,
+  b: OwnedPokemon,
+  theme: HabitatTheme,
+): HabitatPairBeat | null {
+  const aMoves = knownHabitatMoves(a);
+  const bMoves = knownHabitatMoves(b);
+  if (aMoves.length === 0 || bMoves.length === 0) return null;
+
+  const bMoveNames = new Set(bMoves.map((move) => move.apiName));
+  const shared = aMoves.filter(
+    (move) =>
+      bMoveNames.has(move.apiName) &&
+      !habitatBoringSharedMoves.has(move.apiName),
+  );
+  if (shared.length === 0) return null;
+
+  const move = randomFrom(shared);
+  const aName = companionName(a);
+  const bName = companionName(b);
+  const emote = moveTypeEmote(move.type);
+  const spot = movePracticeSpot(move.type, theme);
+  const playful =
+    natureTemperament(a) === "playful" ||
+    natureTemperament(b) === "playful";
+
+  return {
+    message: playful
+      ? `${aName} and ${bName} are practicing ${move.displayName} together and have somehow turned it into a little competition.`
+      : `${aName} and ${bName} are practicing ${move.displayName} together, carefully matching each other's timing.`,
+    approachMessage: `${aName} and ${bName} are finding some room to practice ${move.displayName} together.`,
+    aActivity: `practicing ${move.displayName} with ${bName}`,
+    bActivity: `practicing ${move.displayName} with ${aName}`,
+    aEmote: emote,
+    bEmote: emote,
+    spot,
+  };
+}
+
+function relatedMoveLessonBeat(
+  a: OwnedPokemon,
+  b: OwnedPokemon,
+  theme: HabitatTheme,
+): HabitatPairBeat | null {
+  const aMoves = knownHabitatMoves(a);
+  const bMoves = knownHabitatMoves(b);
+  if (aMoves.length === 0 || bMoves.length === 0) return null;
+
+  const candidates: Array<{
+    strongerPokemon: OwnedPokemon;
+    strongerMove: (typeof aMoves)[number];
+    weakerPokemon: OwnedPokemon;
+    weakerMove: (typeof aMoves)[number];
+    type: string;
+    gap: number;
+  }> = [];
+
+  for (const family of habitatMoveFamilies) {
+    for (const aMove of aMoves) {
+      const aRank = family.moves.indexOf(aMove.apiName);
+      if (aRank < 0) continue;
+
+      for (const bMove of bMoves) {
+        const bRank = family.moves.indexOf(bMove.apiName);
+        if (bRank < 0 || aRank === bRank) continue;
+
+        if (aRank > bRank) {
+          candidates.push({
+            strongerPokemon: a,
+            strongerMove: aMove,
+            weakerPokemon: b,
+            weakerMove: bMove,
+            type: family.type,
+            gap: aRank - bRank,
+          });
+        } else {
+          candidates.push({
+            strongerPokemon: b,
+            strongerMove: bMove,
+            weakerPokemon: a,
+            weakerMove: aMove,
+            type: family.type,
+            gap: bRank - aRank,
+          });
+        }
+      }
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  // Prefer a clearly more advanced technique if several families match.
+  const maxGap = Math.max(...candidates.map((candidate) => candidate.gap));
+  const bestCandidates = candidates.filter(
+    (candidate) => candidate.gap >= Math.max(1, maxGap - 1),
+  );
+  const lesson = randomFrom(bestCandidates);
+
+  const strongName = companionName(lesson.strongerPokemon);
+  const weakName = companionName(lesson.weakerPokemon);
+  const strongMove = lesson.strongerMove.displayName;
+  const weakMove = lesson.weakerMove.displayName;
+  const weakTemperament = natureTemperament(lesson.weakerPokemon);
+  const emote = moveTypeEmote(lesson.type);
+  const spot = movePracticeSpot(lesson.type, theme);
+
+  let message: string;
+  if (weakTemperament === "playful") {
+    message = `${weakName} watches ${strongName} use ${strongMove}, then immediately tries to copy it with the biggest ${weakMove} they can manage.`;
+  } else if (weakTemperament === "shy") {
+    message = `${weakName} is watching ${strongName}'s ${strongMove} wide-eyed, then cautiously tries the same idea with ${weakMove}.`;
+  } else if (weakTemperament === "serious" || weakTemperament === "curious") {
+    message = `${weakName} carefully studies ${strongName}'s ${strongMove}, then experiments with the same technique using ${weakMove}.`;
+  } else {
+    message = `${strongName} demonstrates ${strongMove}, and ${weakName} tries to recreate the technique with ${weakMove}.`;
+  }
+
+  const strongIsA = lesson.strongerPokemon.id === a.id;
+  return {
+    message,
+    approachMessage: `${strongName} is finding some space to show ${weakName} a move technique.`,
+    aActivity: strongIsA
+      ? `demonstrating ${strongMove} for ${weakName}`
+      : `trying to imitate ${strongMove} with ${weakMove}`,
+    bActivity: strongIsA
+      ? `trying to imitate ${strongMove} with ${weakMove}`
+      : `demonstrating ${strongMove} for ${weakName}`,
+    aEmote: strongIsA ? emote : "👀",
+    bEmote: strongIsA ? "👀" : emote,
+    spot,
+  };
+}
+
+function moveBasedPairBeat(
+  a: OwnedPokemon,
+  b: OwnedPokemon,
+  theme: HabitatTheme,
+): HabitatPairBeat | null {
+  const shared = sharedMovePracticeBeat(a, b, theme);
+  if (shared && Math.random() < 0.48) return shared;
+
+  const related = relatedMoveLessonBeat(a, b, theme);
+  if (related && Math.random() < 0.56) return related;
+
+  return null;
 }
 
 function teamAceTrainingBeat(
@@ -1201,6 +1427,7 @@ function spotLabel(spot: HabitatSpot) {
     case "tent": return "the tent";
     case "sand": return "the sandy patch";
     case "trees": return "the little grove";
+    case "tree-perch": return "a perch in the trees";
     default: return "the clearing";
   }
 }
@@ -1262,11 +1489,20 @@ function spotPoint(spot: HabitatSpot, pokemonId: string, role = 0) {
       { x: 73.5, y: 64.5 },
       { x: 79.5, y: 63.0 },
     ],
+    // Ground-level positions beside the actual visible tree trunks.
     trees: [
-      { x: 26.0, y: 42.5 },
-      { x: 31.5, y: 44.5 },
-      { x: 69.0, y: 41.5 },
-      { x: 75.0, y: 44.0 },
+      { x: 15.5, y: 45.0 },
+      { x: 84.5, y: 42.5 },
+      { x: 80.5, y: 66.0 },
+      { x: 18.5, y: 47.5 },
+    ],
+    // Flying Pokémon need a different target: their sprite center is moved
+    // into a visible canopy rather than the old imaginary grove point.
+    "tree-perch": [
+      { x: 14.0, y: 35.0 },
+      { x: 85.5, y: 33.5 },
+      { x: 81.0, y: 58.5 },
+      { x: 16.5, y: 36.5 },
     ],
     clearing: [
       { x: 43.0, y: 52.0 },
@@ -1330,9 +1566,9 @@ function describeSoloBeat(
     return {
       activity: "perching up in the trees",
       emote: "☁",
-      message: `${name} has found a nice perch in the little grove.`,
-      approachMessage: `${name} is fluttering over toward the trees.`,
-      spot: "trees",
+      message: `${name} has found a nice perch in one of the grove's trees.`,
+      approachMessage: `${name} is fluttering over toward a tree branch.`,
+      spot: "tree-perch",
     };
   }
 
@@ -1575,6 +1811,12 @@ function describePairBeat(
     };
   }
 
+  // Moves are individual loadout data, so two Pokémon with compatible
+  // techniques can develop their own practice/teaching moments independent of
+  // species, Type seniority, or evolution stage.
+  const moveBeat = moveBasedPairBeat(a, b, theme);
+  if (moveBeat) return moveBeat;
+
   // A small tree-side berry break gives ordinary duo moments a little more
   // cozy "team hanging out together" energy.
   const naturalTreeTheme =
@@ -1665,7 +1907,7 @@ function describePairBeat(
       bActivity: bothFlying ? `perching and fluttering with ${aName}` : bothBuggy ? `exploring the trunks with ${aName}` : `relaxing in the shade with ${aName}`,
       aEmote: hasType(a, "flying") ? "☁" : hasType(a, "bug") ? "✿" : "🌿",
       bEmote: hasType(b, "flying") ? "☁" : hasType(b, "bug") ? "✿" : "🌿",
-      spot: "trees",
+      spot: bothFlying ? "tree-perch" : "trees",
     };
   }
 
