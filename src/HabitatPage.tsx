@@ -32,6 +32,7 @@ type HabitatActorState = {
   isInteracting: boolean;
   isMoving: boolean;
   moveDurationMs: number;
+  ambientRouteStepsLeft: number;
 };
 
 type HabitatActorClock = {
@@ -50,7 +51,7 @@ type PendingHabitatInteraction = {
 };
 
 type HabitatTheme = "lab" | "training" | "garden" | "wild" | "camp" | "ranch" | "meadow";
-type HabitatSpot = "pond" | "shore" | "campfire" | "berries" | "flowers" | "monitor" | "training" | "tent" | "clearing";
+type HabitatSpot = "pond" | "shore" | "campfire" | "berries" | "flowers" | "monitor" | "training" | "tent" | "sand" | "trees" | "clearing";
 
 type HabitatSoloBeat = {
   activity: string;
@@ -265,12 +266,87 @@ async function fetchEvolutionStanding(pokemon: OwnedPokemon): Promise<EvolutionS
   return request;
 }
 
-function isJuniorStanding(standing?: EvolutionStanding | null) {
-  return Boolean(standing && standing.depth < standing.maxDepth);
+function habitatLevel(pokemon: OwnedPokemon) {
+  return clamp(Math.round(pokemon.level ?? 1), 1, 100);
 }
 
-function isSeniorStanding(standing?: EvolutionStanding | null) {
-  return Boolean(standing && (standing.isFullyEvolved || standing.isSingleStage));
+function evolutionExperienceBonus(standing?: EvolutionStanding | null) {
+  if (!standing) return 0;
+  if (standing.isFullyEvolved || standing.isSingleStage) return 2;
+  if (standing.depth > 0) return 1;
+  return 0;
+}
+
+function isSeniorTo(
+  senior: OwnedPokemon,
+  junior: OwnedPokemon,
+  seniorStanding?: EvolutionStanding | null,
+  juniorStanding?: EvolutionStanding | null,
+) {
+  const levelGap = habitatLevel(senior) - habitatLevel(junior);
+
+  // A meaningful Level advantage is enough by itself.
+  if (levelGap >= 5) return true;
+
+  // When Levels are close, evolution can contribute a LITTLE experience,
+  // but it never outweighs a clearly higher-level Pokémon.
+  if (
+    levelGap >= 2 &&
+    evolutionExperienceBonus(seniorStanding) >
+      evolutionExperienceBonus(juniorStanding)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function highestLevelPokemon(pokemon: OwnedPokemon[]) {
+  if (pokemon.length === 0) return null;
+  return pokemon.reduce((best, candidate) => {
+    const candidateLevel = habitatLevel(candidate);
+    const bestLevel = habitatLevel(best);
+    if (candidateLevel !== bestLevel) {
+      return candidateLevel > bestLevel ? candidate : best;
+    }
+    return hashString(candidate.id) < hashString(best.id) ? candidate : best;
+  });
+}
+
+function teamAceTrainingBeat(
+  ace: OwnedPokemon,
+  partner: OwnedPokemon,
+  theme: HabitatTheme,
+): HabitatPairBeat {
+  const aceName = companionName(ace);
+  const partnerName = companionName(partner);
+  const aceLevel = habitatLevel(ace);
+  const partnerLevel = habitatLevel(partner);
+  const closeEnoughToSpar = aceLevel - partnerLevel <= 9;
+  const trainingSpot: HabitatSpot =
+    theme === "training" ? "training" : "clearing";
+
+  if (closeEnoughToSpar) {
+    return {
+      message: `${aceName} and ${partnerName} are having a friendly little sparring session.`,
+      approachMessage: `${aceName} is calling ${partnerName} over for a little practice match.`,
+      aActivity: `sparring with ${partnerName}`,
+      bActivity: `sparring with ${aceName}`,
+      aEmote: hasType(ace, "fighting") ? "🥊" : "💪",
+      bEmote: hasType(partner, "fighting") ? "🥊" : "✦",
+      spot: trainingSpot,
+    };
+  }
+
+  return {
+    message: `${aceName} is leading ${partnerName} through a few training drills and keeping the pace manageable.`,
+    approachMessage: `${aceName} is gathering ${partnerName} for a short training session.`,
+    aActivity: `leading training drills for ${partnerName}`,
+    bActivity: `training with ${aceName}`,
+    aEmote: hasType(ace, "fighting") ? "🥊" : "⭐",
+    bEmote: natureTemperament(partner) === "shy" ? "👀" : "💪",
+    spot: trainingSpot,
+  };
 }
 
 function mentorPairBeat(junior: OwnedPokemon, senior: OwnedPokemon, theme: HabitatTheme): HabitatPairBeat {
@@ -455,6 +531,7 @@ function initialActorState(pokemon: OwnedPokemon, index: number): HabitatActorSt
     isInteracting: false,
     isMoving: false,
     moveDurationMs: 2800,
+    ambientRouteStepsLeft: 0,
   };
 }
 
@@ -714,7 +791,7 @@ function initialActorClock(pokemon: OwnedPokemon, now: number): HabitatActorCloc
   return {
     nextWanderAt: now + 1900 + phase * 0.14 + randomMs(0.8, 2.6),
     nextSoloAt: now + 11000 + phase * 0.8 + randomMs(4, 12),
-    nextSocialAt: now + 22000 + phase * 1.35 + randomMs(8, 18),
+    nextSocialAt: now + 20000 + phase * 1.25 + randomMs(7, 16),
     busyUntil: 0,
   };
 }
@@ -1088,6 +1165,10 @@ function waterSpotForTheme(theme: HabitatTheme): "pond" | "shore" | null {
   return null;
 }
 
+function visiblePondSpotForTheme(theme: HabitatTheme): "pond" | null {
+  return theme === "camp" || pondIsProminent(theme) ? "pond" : null;
+}
+
 function prefersBerries(pokemon: OwnedPokemon) {
   return hasType(pokemon, "grass", "bug", "fairy", "normal");
 }
@@ -1100,6 +1181,14 @@ function likesTechnology(pokemon: OwnedPokemon) {
   return hasType(pokemon, "electric", "psychic", "steel");
 }
 
+function likesTrees(pokemon: OwnedPokemon) {
+  return hasType(pokemon, "grass", "bug", "flying", "normal", "fairy");
+}
+
+function likesSand(pokemon: OwnedPokemon) {
+  return hasType(pokemon, "ground", "rock", "fire", "dragon");
+}
+
 function spotLabel(spot: HabitatSpot) {
   switch (spot) {
     case "pond": return "the pond";
@@ -1110,6 +1199,8 @@ function spotLabel(spot: HabitatSpot) {
     case "monitor": return "the lab monitor";
     case "training": return "the training circle";
     case "tent": return "the tent";
+    case "sand": return "the sandy patch";
+    case "trees": return "the little grove";
     default: return "the clearing";
   }
 }
@@ -1165,6 +1256,18 @@ function spotPoint(spot: HabitatSpot, pokemonId: string, role = 0) {
       { x: 18.8, y: 50.0 },
       { x: 24.4, y: 49.6 },
     ],
+    sand: [
+      { x: 70.5, y: 60.5 },
+      { x: 76.5, y: 59.5 },
+      { x: 73.5, y: 64.5 },
+      { x: 79.5, y: 63.0 },
+    ],
+    trees: [
+      { x: 26.0, y: 42.5 },
+      { x: 31.5, y: 44.5 },
+      { x: 69.0, y: 41.5 },
+      { x: 75.0, y: 44.0 },
+    ],
     clearing: [
       { x: 43.0, y: 52.0 },
       { x: 57.0, y: 53.0 },
@@ -1190,6 +1293,97 @@ function describeSoloBeat(
       message: `${name} is happily tending the campfire.`,
       approachMessage: `${name} is hopping over to check on the campfire.`,
       spot: "campfire",
+    };
+  }
+
+  if (theme === "camp" && (hasType(pokemon, "ground", "rock") || (hasType(pokemon, "dragon") && Math.random() < 0.72)) && Math.random() < 0.42) {
+    return {
+      activity: "digging around in the sandy patch",
+      emote: "◆",
+      message: `${name} is busily nosing through the sandy patch and leaving little trails behind.`,
+      approachMessage: `${name} is trotting over toward the sandy patch with a purpose.`,
+      spot: "sand",
+    };
+  }
+
+  if (theme === "camp" && hasType(pokemon, "fire") && Math.random() < 0.40) {
+    return {
+      activity: "basking in the warm sand",
+      emote: "☀",
+      message: `${name} is happily soaking up the warmth from the sandy patch.`,
+      approachMessage: `${name} is padding over toward the warm sand.`,
+      spot: "sand",
+    };
+  }
+
+  if (theme === "camp" && likesSand(pokemon) && Math.random() < 0.32) {
+    return {
+      activity: "resting in the warm sand",
+      emote: "☀",
+      message: `${name} seems very content in the sandy patch by the water.`,
+      approachMessage: `${name} is padding over toward the sandy patch.`,
+      spot: "sand",
+    };
+  }
+
+  if ((theme === "camp" || theme === "garden" || theme === "meadow" || theme === "wild") && hasType(pokemon, "flying") && Math.random() < 0.34) {
+    return {
+      activity: "perching up in the trees",
+      emote: "☁",
+      message: `${name} has found a nice perch in the little grove.`,
+      approachMessage: `${name} is fluttering over toward the trees.`,
+      spot: "trees",
+    };
+  }
+
+  if ((theme === "camp" || theme === "garden" || theme === "meadow" || theme === "wild") && hasType(pokemon, "bug") && Math.random() < 0.34) {
+    return {
+      activity: "climbing around the tree trunks",
+      emote: "✿",
+      message: `${name} is happily skittering around the trunks and leaves in the grove.`,
+      approachMessage: `${name} is making a determined little march toward the trees.`,
+      spot: "trees",
+    };
+  }
+
+  if ((theme === "camp" || theme === "garden" || theme === "meadow" || theme === "wild") && hasType(pokemon, "grass", "fairy", "normal") && Math.random() < 0.32) {
+    return {
+      activity: "resting in the shade of the trees",
+      emote: hasType(pokemon, "fairy") ? "✨" : "🌿",
+      message: `${name} is enjoying a peaceful little rest in the shade of the grove.`,
+      approachMessage: `${name} is heading over to the shade of the trees.`,
+      spot: "trees",
+    };
+  }
+
+  if ((theme === "camp" || theme === "garden" || theme === "meadow" || theme === "wild") && likesTrees(pokemon) && Math.random() < 0.24) {
+    return {
+      activity: "exploring near the trees",
+      emote: "🌿",
+      message: `${name} is wandering around the little grove.`,
+      approachMessage: `${name} is heading over to the shade of the trees.`,
+      spot: "trees",
+    };
+  }
+
+  const visiblePondSpot = visiblePondSpotForTheme(theme);
+  if (visiblePondSpot && hasType(pokemon, "flying") && Math.random() < 0.30) {
+    return {
+      activity: "skimming over the pond",
+      emote: "☁",
+      message: `${name} is making little passes over the pond and circling back again.`,
+      approachMessage: `${name} is drifting over toward the pond.`,
+      spot: "pond",
+    };
+  }
+
+  if (visiblePondSpot && hasType(pokemon, "dragon", "psychic") && Math.random() < 0.22) {
+    return {
+      activity: "watching the pond in complete concentration",
+      emote: hasType(pokemon, "psychic") ? "💡" : "💧",
+      message: `${name} is staring into the pond like there is something extremely important happening in there.`,
+      approachMessage: `${name} is wandering over to inspect the pond.`,
+      spot: "pond",
     };
   }
 
@@ -1335,16 +1529,40 @@ function describePairBeat(
   isNight: boolean,
   evolutionStandings: Record<string, EvolutionStanding | null>,
   eggGroupsByPokemon: Record<string, string[]>,
+  teamAceId?: string,
 ): HabitatPairBeat {
   const aName = companionName(a);
   const bName = companionName(b);
 
   const aStanding = evolutionStandings[a.id];
   const bStanding = evolutionStandings[b.id];
-  if (isJuniorStanding(aStanding) && isSeniorStanding(bStanding) && Math.random() < 0.74) {
+
+  // The highest-level companion sometimes takes an informal "team ace" role.
+  // This is deliberately not every ace interaction, so the Pokémon still gets
+  // plenty of ordinary social moments too.
+  if (
+    teamAceId &&
+    (a.id === teamAceId || b.id === teamAceId) &&
+    Math.random() < 0.38
+  ) {
+    const ace = a.id === teamAceId ? a : b;
+    const partner = ace.id === a.id ? b : a;
+    const beat = teamAceTrainingBeat(ace, partner, theme);
+
+    if (ace.id === a.id) return beat;
+    return {
+      ...beat,
+      aActivity: beat.bActivity,
+      bActivity: beat.aActivity,
+      aEmote: beat.bEmote,
+      bEmote: beat.aEmote,
+    };
+  }
+
+  if (isSeniorTo(b, a, bStanding, aStanding) && Math.random() < 0.68) {
     return mentorPairBeat(a, b, theme);
   }
-  if (isJuniorStanding(bStanding) && isSeniorStanding(aStanding) && Math.random() < 0.74) {
+  if (isSeniorTo(a, b, aStanding, bStanding) && Math.random() < 0.68) {
     const beat = mentorPairBeat(b, a, theme);
     // mentorPairBeat is authored junior-first; swap the actor-specific fields so
     // they still correspond to describePairBeat(a, b).
@@ -1354,6 +1572,47 @@ function describePairBeat(
       bActivity: beat.aActivity,
       aEmote: beat.bEmote,
       bEmote: beat.aEmote,
+    };
+  }
+
+  // A small tree-side berry break gives ordinary duo moments a little more
+  // cozy "team hanging out together" energy.
+  const naturalTreeTheme =
+    theme === "camp" ||
+    theme === "garden" ||
+    theme === "ranch" ||
+    theme === "wild" ||
+    theme === "meadow";
+
+  if (
+    naturalTreeTheme &&
+    (prefersBerries(a) || prefersBerries(b)) &&
+    Math.random() < 0.30
+  ) {
+    const berryMoments = [
+      {
+        message: `${aName} and ${bName} have gathered under the trees to share a few berries.`,
+        aActivity: `sharing berries under the trees with ${bName}`,
+        bActivity: `sharing berries under the trees with ${aName}`,
+      },
+      {
+        message: `${aName} and ${bName} found a little handful of berries near the grove and are happily splitting them.`,
+        aActivity: `eating berries with ${bName}`,
+        bActivity: `eating berries with ${aName}`,
+      },
+      {
+        message: `${aName} and ${bName} are taking a quiet berry break together in the shade.`,
+        aActivity: `having a berry break with ${bName}`,
+        bActivity: `having a berry break with ${aName}`,
+      },
+    ];
+    const moment = randomFrom(berryMoments);
+    return {
+      ...moment,
+      approachMessage: `${aName} and ${bName} are heading over toward the trees for a little snack.`,
+      aEmote: "🍓",
+      bEmote: "🍓",
+      spot: "trees",
     };
   }
 
@@ -1371,6 +1630,72 @@ function describePairBeat(
       aEmote: fireIsA ? "🔥" : "♥",
       bEmote: fireIsA ? "♥" : "🔥",
       spot: "campfire",
+    };
+  }
+
+  if (theme === "camp" && (likesSand(a) || likesSand(b)) && Math.random() < 0.46) {
+    const bothDiggers = (hasType(a, "ground", "rock") || hasType(a, "dragon")) && (hasType(b, "ground", "rock") || hasType(b, "dragon"));
+    const basking = hasType(a, "fire") || hasType(b, "fire");
+    return {
+      message: bothDiggers
+        ? `${aName} and ${bName} are enthusiastically digging around in the sandy patch together.`
+        : basking
+          ? `${aName} and ${bName} are stretching out together in the warm sand.`
+          : `${aName} and ${bName} are poking around the sandy patch together.`,
+      approachMessage: `${aName} and ${bName} are heading over toward the sandy patch.`,
+      aActivity: bothDiggers ? `digging in the sand with ${bName}` : basking ? `basking in the sand with ${bName}` : `exploring the sandy patch with ${bName}`,
+      bActivity: bothDiggers ? `digging in the sand with ${aName}` : basking ? `basking in the sand with ${aName}` : `exploring the sandy patch with ${aName}`,
+      aEmote: hasType(a, "fire") ? "☀" : "◆",
+      bEmote: hasType(b, "fire") ? "☀" : "◆",
+      spot: "sand",
+    };
+  }
+
+  if ((theme === "camp" || theme === "garden" || theme === "meadow" || theme === "wild") && (likesTrees(a) || likesTrees(b)) && Math.random() < 0.42) {
+    const bothFlying = hasType(a, "flying") && hasType(b, "flying");
+    const bothBuggy = hasType(a, "bug") && hasType(b, "bug");
+    return {
+      message: bothFlying
+        ? `${aName} and ${bName} are weaving around the grove and swapping perches between the trees.`
+        : bothBuggy
+          ? `${aName} and ${bName} are busily exploring the trunks and leaves together.`
+          : `${aName} and ${bName} are spending some time together in the shade of the little grove.`,
+      approachMessage: `${aName} and ${bName} are wandering over toward the trees.`,
+      aActivity: bothFlying ? `perching and fluttering with ${bName}` : bothBuggy ? `exploring the trunks with ${bName}` : `relaxing in the shade with ${bName}`,
+      bActivity: bothFlying ? `perching and fluttering with ${aName}` : bothBuggy ? `exploring the trunks with ${aName}` : `relaxing in the shade with ${aName}`,
+      aEmote: hasType(a, "flying") ? "☁" : hasType(a, "bug") ? "✿" : "🌿",
+      bEmote: hasType(b, "flying") ? "☁" : hasType(b, "bug") ? "✿" : "🌿",
+      spot: "trees",
+    };
+  }
+
+  const visiblePondSpot = visiblePondSpotForTheme(theme);
+  if (visiblePondSpot && ((hasType(a, "water") && hasType(b, "flying")) || (hasType(b, "water") && hasType(a, "flying"))) && Math.random() < 0.68) {
+    const waterFriend = hasType(a, "water") ? a : b;
+    const flyingFriend = waterFriend.id === a.id ? b : a;
+    const waterName = companionName(waterFriend);
+    const flyingName = companionName(flyingFriend);
+    const waterIsA = waterFriend.id === a.id;
+    return {
+      message: `${waterName} is splashing around in the pond while ${flyingName} skims low over the surface.`,
+      approachMessage: `${waterName} and ${flyingName} are heading over toward the pond together.`,
+      aActivity: waterIsA ? `splashing in the pond while ${flyingName} circles overhead` : `skimming over the pond with ${waterName}`,
+      bActivity: waterIsA ? `skimming over the pond with ${waterName}` : `splashing in the pond while ${flyingName} circles overhead`,
+      aEmote: waterIsA ? "💧" : "☁",
+      bEmote: waterIsA ? "☁" : "💧",
+      spot: "pond",
+    };
+  }
+
+  if (visiblePondSpot && hasType(a, "flying") && hasType(b, "flying") && Math.random() < 0.38) {
+    return {
+      message: `${aName} and ${bName} are circling over the pond together and occasionally swooping low.`,
+      approachMessage: `${aName} and ${bName} are drifting over toward the pond.`,
+      aActivity: `circling over the pond with ${bName}`,
+      bActivity: `circling over the pond with ${aName}`,
+      aEmote: "☁",
+      bEmote: "☁",
+      spot: "pond",
     };
   }
 
@@ -1661,9 +1986,12 @@ export function HabitatPage({
   );
   const [isPaused, setIsPaused] = useState(false);
   const movementTimerRef = useRef<number | null>(null);
+  const movementDeadlineRef = useRef(0);
   const actorClocksRef = useRef<Record<string, HabitatActorClock>>({});
   const actorsRef = useRef<Record<string, HabitatActorState>>({});
   const pendingInteractionsRef = useRef<PendingHabitatInteraction[]>([]);
+  const ambientMoveTimersRef = useRef<Record<string, number>>({});
+  const ambientMoveDeadlinesRef = useRef<Record<string, number>>({});
   const nextSceneEventAtRef = useRef(0);
 
   useEffect(() => {
@@ -1691,9 +2019,33 @@ export function HabitatPage({
       window.clearTimeout(movementTimerRef.current);
       movementTimerRef.current = null;
     }
+    movementDeadlineRef.current = 0;
   };
 
-  useEffect(() => () => clearMovementTimer(), []);
+  const clearAmbientMoveTimer = (pokemonId: string) => {
+    const timer = ambientMoveTimersRef.current[pokemonId];
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      delete ambientMoveTimersRef.current[pokemonId];
+    }
+    delete ambientMoveDeadlinesRef.current[pokemonId];
+  };
+
+  const clearAllAmbientMoveTimers = () => {
+    for (const timer of Object.values(ambientMoveTimersRef.current)) {
+      window.clearTimeout(timer);
+    }
+    ambientMoveTimersRef.current = {};
+    ambientMoveDeadlinesRef.current = {};
+  };
+
+  useEffect(
+    () => () => {
+      clearMovementTimer();
+      clearAllAmbientMoveTimers();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!sources.some((source) => source.key === selectedSourceKey)) {
@@ -1731,6 +2083,7 @@ export function HabitatPage({
   useEffect(() => {
     clearMovementTimer();
     const now = Date.now();
+    clearAllAmbientMoveTimers();
     const next: Record<string, HabitatActorState> = {};
     const clocks: Record<string, HabitatActorClock> = {};
     scenePokemon.forEach((pokemon, index) => {
@@ -1759,9 +2112,18 @@ export function HabitatPage({
       for (const pokemon of scenePokemon) {
         const clock = actorClocksRef.current[pokemon.id];
         if (!clock || clock.busyUntil <= 0 || now < clock.busyUntil) continue;
-        clock.busyUntil = 0;
+
+        // Ambient stroll/lap movement has its own exact per-Pokémon timer.
+        // Do not let the coarse Habitat heartbeat end it between route legs.
+        if (ambientMoveTimersRef.current[pokemon.id] !== undefined) continue;
+
         const actor = next[pokemon.id];
-        if (!actor) continue;
+        if (!actor) {
+          clock.busyUntil = 0;
+          continue;
+        }
+
+        clock.busyUntil = 0;
         next[pokemon.id] = {
           ...actor,
           activity: "relaxing and enjoying the habitat",
@@ -1769,6 +2131,7 @@ export function HabitatPage({
           isInteracting: false,
           isMoving: false,
           moveDurationMs: 2800,
+          ambientRouteStepsLeft: 0,
         };
         changed = true;
       }
@@ -1793,7 +2156,7 @@ export function HabitatPage({
     // Social moments are deliberately the rarest thing an individual can do.
     // A Pokémon that just socialised should not immediately become the star of
     // the next interaction as soon as the global scheduler ticks again.
-    clock.nextSocialAt = clock.busyUntil + randomMs(28, 48);
+    clock.nextSocialAt = clock.busyUntil + randomMs(24, 42);
     clock.nextSoloAt = Math.max(clock.nextSoloAt, clock.busyUntil + randomMs(14, 28));
     clock.nextWanderAt = clock.busyUntil + randomMs(4.5, 8.5);
     actorClocksRef.current[pokemon.id] = clock;
@@ -1826,6 +2189,99 @@ export function HabitatPage({
       (pending) =>
         pending.firstId === pokemonId || pending.secondId === pokemonId,
     );
+
+  const finishAmbientMoveLeg = (pokemonId: string) => {
+    delete ambientMoveTimersRef.current[pokemonId];
+    delete ambientMoveDeadlinesRef.current[pokemonId];
+    const now = Date.now();
+    const pokemon = scenePokemon.find((candidate) => candidate.id === pokemonId);
+    const actor = actorsRef.current[pokemonId];
+    const clock = actorClocksRef.current[pokemonId];
+
+    if (!pokemon || !actor || !clock) return;
+
+    // If a social interaction was queued during this leg, finish the current
+    // step and stop here so the pair can meet on the next scheduler heartbeat.
+    if (isPokemonQueued(pokemonId)) {
+      clock.busyUntil = 0;
+      clock.nextWanderAt = now + randomMs(3, 6);
+      actorClocksRef.current[pokemonId] = clock;
+      setActors((current) => ({
+        ...current,
+        [pokemonId]: {
+          ...(current[pokemonId] ?? actor),
+          activity: "waiting for a friend",
+          isMoving: false,
+          isInteracting: false,
+          ambientRouteStepsLeft: 0,
+          moveDurationMs: 2800,
+        },
+      }));
+      return;
+    }
+
+    if (actor.ambientRouteStepsLeft > 0) {
+      const minimumTravel =
+        actor.activity === "doing a little lap around the clearing" ? 11 : 9;
+      const position = chooseSpacedWander(
+        actor,
+        actorsRef.current,
+        pokemonId,
+        minimumTravel,
+      );
+      const actuallyMoved =
+        Math.abs(position.x - actor.x) > 0.05 ||
+        Math.abs(position.y - actor.y) > 0.05;
+
+      if (actuallyMoved) {
+        const travelDurationMs = ambientTravelDurationMs(actor, position);
+        clock.busyUntil = now + travelDurationMs + 80;
+        actorClocksRef.current[pokemonId] = clock;
+
+        setActors((current) => ({
+          ...current,
+          [pokemonId]: {
+            ...(current[pokemonId] ?? actor),
+            ...position,
+            facing:
+              position.x === actor.x
+                ? actor.facing
+                : position.x > actor.x
+                  ? 1
+                  : -1,
+            isMoving: true,
+            isInteracting: false,
+            moveDurationMs: travelDurationMs,
+            ambientRouteStepsLeft: actor.ambientRouteStepsLeft - 1,
+          },
+        }));
+
+        const ambientDeadline = now + travelDurationMs + 90;
+        ambientMoveDeadlinesRef.current[pokemonId] = ambientDeadline + 1400;
+        ambientMoveTimersRef.current[pokemonId] = window.setTimeout(
+          () => finishAmbientMoveLeg(pokemonId),
+          travelDurationMs + 90,
+        );
+        return;
+      }
+    }
+
+    clock.busyUntil = 0;
+    clock.nextWanderAt = now + randomMs(1.8, 4.2);
+    actorClocksRef.current[pokemonId] = clock;
+    setActors((current) => ({
+      ...current,
+      [pokemonId]: {
+        ...(current[pokemonId] ?? actor),
+        activity: "relaxing and enjoying the habitat",
+        emote: "",
+        isMoving: false,
+        isInteracting: false,
+        ambientRouteStepsLeft: 0,
+        moveDurationMs: 2800,
+      },
+    }));
+  };
 
   const queuePairInteraction = (
     first: OwnedPokemon,
@@ -1861,10 +2317,21 @@ export function HabitatPage({
     now: number,
   ) => {
     clearMovementTimer();
+    clearAmbientMoveTimer(first.id);
+    clearAmbientMoveTimer(second.id);
 
     const firstIndex = scenePokemon.findIndex((pokemon) => pokemon.id === first.id);
     const secondIndex = scenePokemon.findIndex((pokemon) => pokemon.id === second.id);
-    const pairBeat = describePairBeat(first, second, theme, isNight, evolutionStandings, eggGroupsByPokemon);
+    const teamAce = highestLevelPokemon(scenePokemon);
+    const pairBeat = describePairBeat(
+      first,
+      second,
+      theme,
+      isNight,
+      evolutionStandings,
+      eggGroupsByPokemon,
+      teamAce?.id,
+    );
     const firstTarget = pairBeat.spot ? spotPoint(pairBeat.spot, first.id, 0) : null;
     const secondTarget = pairBeat.spot ? spotPoint(pairBeat.spot, second.id, 1) : null;
 
@@ -1883,7 +2350,7 @@ export function HabitatPage({
 
     scheduleAfterSocial(first, now);
     scheduleAfterSocial(second, now);
-    nextSceneEventAtRef.current = now + randomMs(10, 16);
+    nextSceneEventAtRef.current = now + randomMs(9, 14);
 
     setActors((current) => {
       const firstPrevious = current[first.id] ?? initialActorState(first, Math.max(0, firstIndex));
@@ -1909,6 +2376,7 @@ export function HabitatPage({
         isInteracting: false,
         isMoving: Math.abs(firstPoint.x - firstPrevious.x) > 0.05 || Math.abs(firstPoint.y - firstPrevious.y) > 0.05,
         moveDurationMs: travelDurationMs,
+        ambientRouteStepsLeft: 0,
       };
 
       next[second.id] = {
@@ -1923,11 +2391,13 @@ export function HabitatPage({
         isInteracting: false,
         isMoving: Math.abs(secondPoint.x - secondPrevious.x) > 0.05 || Math.abs(secondPoint.y - secondPrevious.y) > 0.05,
         moveDurationMs: travelDurationMs,
+        ambientRouteStepsLeft: 0,
       };
       return next;
     });
 
     setAmbientMessage(pairBeat.approachMessage);
+    movementDeadlineRef.current = Date.now() + travelDurationMs + 120 + 1800;
     movementTimerRef.current = window.setTimeout(() => {
       setActors((current) => {
         const next = { ...current };
@@ -1957,6 +2427,7 @@ export function HabitatPage({
       });
       setAmbientMessage(pairBeat.message);
       movementTimerRef.current = null;
+      movementDeadlineRef.current = 0;
     }, travelDurationMs + 120);
   };
 
@@ -1998,6 +2469,7 @@ export function HabitatPage({
 
   const startSoloEvent = (focus: OwnedPokemon, now: number) => {
     clearMovementTimer();
+    clearAmbientMoveTimer(focus.id);
 
     const focusIndex = scenePokemon.findIndex((pokemon) => pokemon.id === focus.id);
     const soloBeat = describeSoloBeat(focus, theme, isNight, eggGroupsByPokemon[focus.id] ?? []);
@@ -2028,6 +2500,7 @@ export function HabitatPage({
           isInteracting: false,
           isMoving,
           moveDurationMs: travelDurationMs,
+          ambientRouteStepsLeft: 0,
         },
       };
     });
@@ -2036,6 +2509,7 @@ export function HabitatPage({
       setAmbientMessage(
         soloBeat.approachMessage ?? `${companionName(focus)} is heading toward ${spotLabel(soloBeat.spot)}.`,
       );
+      movementDeadlineRef.current = Date.now() + travelDurationMs + 120 + 1800;
       movementTimerRef.current = window.setTimeout(() => {
         setActors((current) => {
           const actor = current[focus.id];
@@ -2053,20 +2527,23 @@ export function HabitatPage({
         });
         setAmbientMessage(soloBeat.message);
         movementTimerRef.current = null;
+        movementDeadlineRef.current = 0;
       }, travelDurationMs + 120);
     } else {
       setAmbientMessage(soloBeat.message);
       clearMovementTimer();
+      movementDeadlineRef.current = Date.now() + travelDurationMs + 120 + 1800;
       movementTimerRef.current = window.setTimeout(() => {
         setActors((current) => {
           const actor = current[focus.id];
           if (!actor) return current;
           return {
             ...current,
-            [focus.id]: { ...actor, isMoving: false },
+            [focus.id]: { ...actor, isMoving: false, ambientRouteStepsLeft: 0 },
           };
         });
         movementTimerRef.current = null;
+        movementDeadlineRef.current = 0;
       }, travelDurationMs + 120);
     }
   };
@@ -2101,6 +2578,17 @@ export function HabitatPage({
     const travelDurationMs = ambientTravelDurationMs(previousForTiming, position);
     scheduleAfterWander(pokemon, now, travelDurationMs);
 
+    // Labels that explicitly describe walking now guarantee a real route.
+    // A stroll is three visible legs total; a lap is four.
+    const ambientRouteStepsLeft =
+      wanderActivity === "doing a little lap around the clearing"
+        ? 3
+        : wanderActivity === "taking a little stroll"
+          ? 2
+          : wanderActivity === "wandering around the island"
+            ? 1
+            : 0;
+
     setActors((current) => {
       const previous = current[pokemon.id] ?? previousForTiming;
       return {
@@ -2114,17 +2602,147 @@ export function HabitatPage({
           isInteracting: false,
           isMoving: true,
           moveDurationMs: travelDurationMs,
+          ambientRouteStepsLeft,
         },
       };
     });
 
-    // No global timer here. Each Pokémon's own busyUntil ends this little walk,
-    // so several companions can casually drift around at the same time.
+    clearAmbientMoveTimer(pokemon.id);
+    ambientMoveDeadlinesRef.current[pokemon.id] =
+      now + travelDurationMs + 90 + 1400;
+    ambientMoveTimersRef.current[pokemon.id] = window.setTimeout(
+      () => finishAmbientMoveLeg(pokemon.id),
+      travelDurationMs + 90,
+    );
+
+    // Ambient walking now chains with an exact per-Pokémon timer instead of
+    // waiting for the coarse global scheduler between steps.
+  };
+
+  const recoverStaleSchedulerState = (now: number) => {
+    const staleAmbientIds = Object.entries(ambientMoveDeadlinesRef.current)
+      .filter(([, deadline]) => deadline > 0 && now > deadline)
+      .map(([pokemonId]) => pokemonId);
+
+    if (staleAmbientIds.length > 0) {
+      for (const pokemonId of staleAmbientIds) {
+        const timer = ambientMoveTimersRef.current[pokemonId];
+        if (timer !== undefined) window.clearTimeout(timer);
+        delete ambientMoveTimersRef.current[pokemonId];
+        delete ambientMoveDeadlinesRef.current[pokemonId];
+
+        const clock = actorClocksRef.current[pokemonId];
+        if (clock) {
+          clock.busyUntil = 0;
+          clock.nextWanderAt = now + randomMs(0.8, 2.2);
+          actorClocksRef.current[pokemonId] = clock;
+        }
+      }
+
+      setActors((current) => {
+        const next = { ...current };
+        for (const pokemonId of staleAmbientIds) {
+          const actor = next[pokemonId];
+          if (!actor) continue;
+          next[pokemonId] = {
+            ...actor,
+            activity: "relaxing and enjoying the habitat",
+            emote: "",
+            isMoving: false,
+            isInteracting: false,
+            ambientRouteStepsLeft: 0,
+            moveDurationMs: 2800,
+          };
+        }
+        return next;
+      });
+    }
+
+    if (
+      movementTimerRef.current !== null &&
+      movementDeadlineRef.current > 0 &&
+      now > movementDeadlineRef.current
+    ) {
+      window.clearTimeout(movementTimerRef.current);
+      movementTimerRef.current = null;
+      movementDeadlineRef.current = 0;
+
+      setActors((current) => {
+        const next = { ...current };
+        for (const pokemon of scenePokemon) {
+          const actor = next[pokemon.id];
+          const clock = actorClocksRef.current[pokemon.id];
+          if (!actor) continue;
+
+          // A major travel timer should never own a Pokémon indefinitely.
+          // Recover any actor that still claims it is travelling after the
+          // timer's watchdog deadline.
+          if (actor.isMoving && ambientMoveTimersRef.current[pokemon.id] === undefined) {
+            next[pokemon.id] = {
+              ...actor,
+              activity: "relaxing and enjoying the habitat",
+              emote: "",
+              isMoving: false,
+              isInteracting: false,
+              ambientRouteStepsLeft: 0,
+              moveDurationMs: 2800,
+            };
+            if (clock) {
+              clock.busyUntil = 0;
+              clock.nextWanderAt = now + randomMs(0.8, 2.2);
+              actorClocksRef.current[pokemon.id] = clock;
+            }
+          }
+        }
+        return next;
+      });
+    }
+
+    // Final safety net: if an actor says it is busy but its own clock has
+    // already expired and no movement timer owns it, release it.
+    const strandedIds = scenePokemon
+      .filter((pokemon) => {
+        const actor = actorsRef.current[pokemon.id];
+        const clock = actorClocksRef.current[pokemon.id];
+        if (!actor || !clock) return false;
+        if (now < clock.busyUntil) return false;
+        if (ambientMoveTimersRef.current[pokemon.id] !== undefined) return false;
+        if (movementTimerRef.current !== null && actor.isMoving) return false;
+        return actor.isMoving || actor.isInteracting;
+      })
+      .map((pokemon) => pokemon.id);
+
+    if (strandedIds.length > 0) {
+      setActors((current) => {
+        const next = { ...current };
+        for (const pokemonId of strandedIds) {
+          const actor = next[pokemonId];
+          if (!actor) continue;
+          const clock = actorClocksRef.current[pokemonId];
+          if (clock) {
+            clock.busyUntil = 0;
+            clock.nextWanderAt = Math.min(clock.nextWanderAt, now + randomMs(0.8, 2.2));
+            actorClocksRef.current[pokemonId] = clock;
+          }
+          next[pokemonId] = {
+            ...actor,
+            activity: "relaxing and enjoying the habitat",
+            emote: "",
+            isMoving: false,
+            isInteracting: false,
+            ambientRouteStepsLeft: 0,
+            moveDurationMs: 2800,
+          };
+        }
+        return next;
+      });
+    }
   };
 
   const runHabitatClock = (forceInteraction = false) => {
     if (scenePokemon.length === 0) return;
     const now = Date.now();
+    recoverStaleSchedulerState(now);
     releaseExpiredActors(now);
 
     // A planned interaction gets first dibs as soon as its two participants
@@ -2193,24 +2811,54 @@ export function HabitatPage({
     });
 
     if (now >= nextSceneEventAtRef.current) {
-      if (socialReady.length >= 2 && Math.random() < 0.62) {
+      if (socialReady.length >= 2 && Math.random() < 0.68) {
         let first = randomFrom(socialReady);
         let second = randomFrom(
           socialReady.filter((pokemon) => pokemon.id !== first.id),
         );
 
+        let deliberatelyPickedAcePair = false;
+        const teamAce = highestLevelPokemon(socialReady);
+        if (teamAce && socialReady.length >= 2 && Math.random() < 0.28) {
+          const lowerLevelPartners = socialReady.filter(
+            (pokemon) =>
+              pokemon.id !== teamAce.id &&
+              habitatLevel(pokemon) <= habitatLevel(teamAce),
+          );
+          const partnerPool =
+            lowerLevelPartners.length > 0
+              ? lowerLevelPartners
+              : socialReady.filter((pokemon) => pokemon.id !== teamAce.id);
+
+          if (partnerPool.length > 0) {
+            first = teamAce;
+            second = randomFrom(partnerPool);
+            deliberatelyPickedAcePair = true;
+          }
+        }
+
         const mentorPairs: Array<[OwnedPokemon, OwnedPokemon]> = [];
         for (const junior of socialReady) {
-          if (!isJuniorStanding(evolutionStandings[junior.id])) continue;
           for (const senior of socialReady) {
             if (junior.id === senior.id) continue;
-            if (isSeniorStanding(evolutionStandings[senior.id])) {
+            if (
+              isSeniorTo(
+                senior,
+                junior,
+                evolutionStandings[senior.id],
+                evolutionStandings[junior.id],
+              )
+            ) {
               mentorPairs.push([junior, senior]);
             }
           }
         }
 
-        if (mentorPairs.length > 0 && Math.random() < 0.42) {
+        if (
+          !deliberatelyPickedAcePair &&
+          mentorPairs.length > 0 &&
+          Math.random() < 0.38
+        ) {
           [first, second] = randomFrom(mentorPairs);
         }
 
@@ -2272,7 +2920,34 @@ export function HabitatPage({
     // happens every ~1.6 seconds; the individual Pokémon clocks still decide whether
     // anyone actually does something.
     const interval = window.setInterval(() => runHabitatClock(false), 1600);
-    return () => window.clearInterval(interval);
+
+    let debugInterval: number | null = null;
+    if (import.meta.env.DEV) {
+      debugInterval = window.setInterval(() => {
+        console.debug("[Habitat scheduler]", {
+          majorTimerActive: movementTimerRef.current !== null,
+          majorDeadline: movementDeadlineRef.current,
+          ambientTimers: Object.keys(ambientMoveTimersRef.current).length,
+          queuedInteractions: pendingInteractionsRef.current.length,
+          actors: Object.fromEntries(
+            Object.entries(actorsRef.current).map(([id, actor]) => [
+              id,
+              {
+                activity: actor.activity,
+                moving: actor.isMoving,
+                interacting: actor.isInteracting,
+                busyUntil: actorClocksRef.current[id]?.busyUntil ?? 0,
+              },
+            ]),
+          ),
+        });
+      }, 30000);
+    }
+
+    return () => {
+      window.clearInterval(interval);
+      if (debugInterval !== null) window.clearInterval(debugInterval);
+    };
   }, [isPaused, pokemonIdentity, selectedSourceKey, theme, isNight, evolutionStandings, eggGroupsByPokemon]);
 
   return (
@@ -2338,9 +3013,12 @@ export function HabitatPage({
           <div className="pelago-tree-asset pelago-tree-one" aria-hidden="true" />
           <div className="pelago-tree-asset pelago-tree-two" aria-hidden="true" />
           <div className="pelago-tree-asset pelago-tree-three" aria-hidden="true" />
+          <div className="pelago-tree-asset pelago-tree-four" aria-hidden="true" />
+          <div className="pelago-tree-asset pelago-tree-five" aria-hidden="true" />
           <div className="pelago-fence-asset pelago-fence-one" aria-hidden="true" />
           <div className="pelago-fence-asset pelago-fence-two" aria-hidden="true" />
-          {pondIsProminent(theme) && <div className="pelago-pond-asset" aria-hidden="true"><i /><b /></div>}
+          <div className="pelago-sandy-cove" aria-hidden="true"><i /><b /></div>
+          {(pondIsProminent(theme) || theme === "camp") && <div className={`pelago-pond-asset ${theme === "camp" ? "is-camp-pond" : ""}`} aria-hidden="true"><i /><b /></div>}
 
           <div className="pelago-flower flower-a" aria-hidden="true" />
           <div className="pelago-flower flower-b" aria-hidden="true" />
@@ -2351,12 +3029,19 @@ export function HabitatPage({
           <div className="pelago-grass-tuft grass-c" aria-hidden="true" />
 
           {theme === "camp" && (
-            <div className="pelago-camp-props" aria-hidden="true">
-              <div className="pelago-pixel-tent"><i /><b /></div>
-              <div className="pelago-campfire"><i /><b /><em /></div>
-              <div className="pelago-log log-a" />
-              <div className="pelago-log log-b" />
-            </div>
+            <>
+              <div className="pelago-camp-grove" aria-hidden="true">
+                <div className="pelago-camp-tree camp-tree-a"><i /><b /></div>
+                <div className="pelago-camp-tree camp-tree-b"><i /><b /></div>
+                <div className="pelago-camp-tree camp-tree-c"><i /><b /></div>
+              </div>
+              <div className="pelago-camp-props" aria-hidden="true">
+                <div className="pelago-pixel-tent"><i /><b /></div>
+                <div className="pelago-campfire"><i /><b /><em /></div>
+                <div className="pelago-log log-a" />
+                <div className="pelago-log log-b" />
+              </div>
+            </>
           )}
           {theme === "lab" && (
             <div className="pelago-lab-props" aria-hidden="true">
