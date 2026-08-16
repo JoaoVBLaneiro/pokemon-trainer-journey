@@ -65,6 +65,7 @@ import {
   loadSpeciesIndex,
   type EvolutionOption,
 } from "./pokeapi";
+import { HabitatPage } from "./HabitatPage";
 import "./App.css";
 
 const pokemonTypes = [
@@ -225,6 +226,7 @@ const navItems = [
   { to: "/pokemon", label: "My Pokémon", icon: "◉" },
   { to: "/party", label: "Party", icon: "✦" },
   { to: "/places", label: "Places", icon: "⌖" },
+  { to: "/habitat", label: "Habitat", icon: "♧" },
   { to: "/journal", label: "Journal", icon: "▤" },
 ];
 
@@ -5573,6 +5575,16 @@ function AppShell() {
                 onChoosePokemonForPlace={(locationId) =>
                   setPlacePokemonPickerTarget({ locationId })
                 }
+              />
+            }
+          />
+          <Route
+            path="/habitat"
+            element={
+              <HabitatPage
+                ownedPokemon={ownedPokemon}
+                places={places}
+                onEditPokemon={setPokemonBeingEdited}
               />
             }
           />
