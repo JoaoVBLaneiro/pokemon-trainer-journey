@@ -181,6 +181,30 @@ const placeKinds: Array<{
     description: "A forest, lake, cave, island, or other habitat.",
   },
   {
+    value: "mountain",
+    label: "Rocky mountain",
+    icon: "⛰",
+    description: "A craggy mountain, highland trail, or rocky plateau.",
+  },
+  {
+    value: "desert",
+    label: "Sandy desert",
+    icon: "◌",
+    description: "A dry desert, dune field, or sun-baked route.",
+  },
+  {
+    value: "beach",
+    label: "Beach",
+    icon: "≈",
+    description: "A shoreline, cove, or seaside camp.",
+  },
+  {
+    value: "aquarium",
+    label: "Aquarium",
+    icon: "◉",
+    description: "An aquarium exhibit, water tank, or marine enclosure.",
+  },
+  {
     value: "pc",
     label: "PC storage",
     icon: "▣",

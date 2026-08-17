@@ -33,6 +33,7 @@ type HabitatActorState = {
   isMoving: boolean;
   moveDurationMs: number;
   ambientRouteStepsLeft: number;
+  zoneIntent?: HabitatMovementIntent;
 };
 
 type HabitatActorClock = {
@@ -50,8 +51,10 @@ type PendingHabitatInteraction = {
   forced: boolean;
 };
 
-type HabitatTheme = "lab" | "training" | "garden" | "wild" | "camp" | "ranch" | "meadow";
-type HabitatSpot = "pond" | "shore" | "campfire" | "berries" | "flowers" | "monitor" | "training" | "tent" | "sand" | "trees" | "tree-perch" | "clearing";
+type HabitatTheme = "lab" | "training" | "garden" | "wild" | "camp" | "ranch" | "meadow" | "mountain" | "desert" | "beach" | "aquarium";
+type HabitatSpot = "pond" | "shore" | "campfire" | "berries" | "flowers" | "monitor" | "training" | "tent" | "sand" | "dune" | "oasis-shore" | "palm-shade" | "trees" | "tree-perch" | "clearing";
+type HabitatViewport = "default" | "compact" | "narrow";
+type HabitatMovementIntent = "ambient" | "spot" | "water";
 
 type HabitatSoloBeat = {
   activity: string;
@@ -725,7 +728,12 @@ const HABITAT_HOME_SLOTS = [
   { x: 64, y: 68 },
 ];
 
-function initialActorState(pokemon: OwnedPokemon, index: number): HabitatActorState {
+function initialActorState(
+  pokemon: OwnedPokemon,
+  index: number,
+  theme: HabitatTheme = "camp",
+  viewport: HabitatViewport = "default",
+): HabitatActorState {
   const slot = HABITAT_HOME_SLOTS[index % HABITAT_HOME_SLOTS.length];
   const ring = Math.floor(index / HABITAT_HOME_SLOTS.length);
 
@@ -745,12 +753,18 @@ function initialActorState(pokemon: OwnedPokemon, index: number): HabitatActorSt
     36,
     71,
   );
+  const home = keepPointInRoamArea(
+    { x: homeX, y: homeY },
+    theme,
+    viewport,
+    "ambient",
+  );
 
   return {
-    x: homeX,
-    y: homeY,
-    homeX,
-    homeY,
+    x: home.x,
+    y: home.y,
+    homeX: home.x,
+    homeY: home.y,
     facing: hashString(`${pokemon.id}:face`) % 2 === 0 ? 1 : -1,
     activity: "settling in",
     emote: "",
@@ -758,6 +772,7 @@ function initialActorState(pokemon: OwnedPokemon, index: number): HabitatActorSt
     isMoving: false,
     moveDurationMs: 2800,
     ambientRouteStepsLeft: 0,
+    zoneIntent: "ambient",
   };
 }
 
@@ -765,7 +780,142 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function shortWander(previous: HabitatActorState) {
+type HabitatNoGoZone = {
+  cx: number;
+  cy: number;
+  rx: number;
+  ry: number;
+  blockedFor: HabitatMovementIntent[];
+};
+
+function habitatViewportForWidth(width: number): HabitatViewport {
+  if (width > 0 && width <= 820) return "narrow";
+  if (width > 0 && width <= 1120) return "compact";
+  return "default";
+}
+
+function habitatRoamBounds(viewport: HabitatViewport) {
+  if (viewport === "narrow") {
+    return { minX: 16, maxX: 84, minY: 38, maxY: 70.5 };
+  }
+  if (viewport === "compact") {
+    return { minX: 15, maxX: 85, minY: 37, maxY: 71.5 };
+  }
+  return { minX: 14, maxX: 86, minY: 36, maxY: 72 };
+}
+
+function habitatNoGoZones(
+  theme: HabitatTheme,
+  viewport: HabitatViewport,
+): HabitatNoGoZone[] {
+  const scale = viewport === "narrow" ? 1.18 : viewport === "compact" ? 1.08 : 1;
+
+  if (theme === "camp") {
+    return [
+      {
+        cx: 76.6,
+        cy: 58.0,
+        rx: 8.4 * scale,
+        ry: 5.8 * scale,
+        blockedFor: ["ambient", "spot"],
+      },
+    ];
+  }
+
+  if (theme === "beach") {
+    return [
+      {
+        cx: 76.8,
+        cy: 57.6,
+        rx: 9.0 * scale,
+        ry: 6.3 * scale,
+        blockedFor: ["ambient", "spot"],
+      },
+    ];
+  }
+
+  if (theme === "desert") {
+    return [
+      {
+        // The desert oasis is real water. Ordinary strolling and non-water
+        // spot interactions should stay on its bank rather than crossing it.
+        cx: 80.0,
+        cy: 57.0,
+        rx: 7.7 * scale,
+        ry: 5.5 * scale,
+        blockedFor: ["ambient", "spot"],
+      },
+    ];
+  }
+
+  return [];
+}
+
+function keepPointInRoamArea(
+  point: { x: number; y: number },
+  theme: HabitatTheme,
+  viewport: HabitatViewport,
+  intent: HabitatMovementIntent = "ambient",
+) {
+  const bounds = habitatRoamBounds(viewport);
+  const next = {
+    x: clamp(point.x, bounds.minX, bounds.maxX),
+    y: clamp(point.y, bounds.minY, bounds.maxY),
+  };
+
+  for (const zone of habitatNoGoZones(theme, viewport)) {
+    if (!zone.blockedFor.includes(intent)) continue;
+
+    let dx = next.x - zone.cx;
+    let dy = next.y - zone.cy;
+    let normalizedDistance = Math.hypot(dx / zone.rx, dy / zone.ry);
+
+    if (normalizedDistance < 1) {
+      if (normalizedDistance < 0.001) {
+        dx = zone.rx;
+        dy = 0;
+        normalizedDistance = 0.001;
+      }
+      const factor = 1.04 / normalizedDistance;
+      next.x = zone.cx + dx * factor;
+      next.y = zone.cy + dy * factor;
+      next.x = clamp(next.x, bounds.minX, bounds.maxX);
+      next.y = clamp(next.y, bounds.minY, bounds.maxY);
+    }
+  }
+
+  return next;
+}
+
+function movementIntentForSpot(spot?: HabitatSpot | null): HabitatMovementIntent {
+  if (spot === "pond") return "water";
+  return "spot";
+}
+
+function movementIntentForActivity(
+  pokemon: OwnedPokemon,
+  spot: HabitatSpot | undefined,
+  activity: string,
+): HabitatMovementIntent {
+  if (!spot) return "ambient";
+
+  const waterActivity = /swim|splash|paddl|shallows|water|pond|surf/i.test(activity);
+  if (
+    hasType(pokemon, "water") &&
+    (spot === "pond" || spot === "shore") &&
+    waterActivity
+  ) {
+    return "water";
+  }
+
+  return "spot";
+}
+
+function shortWander(
+  previous: HabitatActorState,
+  theme: HabitatTheme = "camp",
+  viewport: HabitatViewport = "default",
+) {
   // Ambient movement is no longer tethered to the Pokémon's original spawn.
   // Companions can gradually explore the whole safe island area while still
   // taking mostly short, PokéPelago-like strolls.
@@ -792,10 +942,15 @@ function shortWander(previous: HabitatActorState) {
     ? (Math.random() - 0.5) * 12
     : (Math.random() - 0.5) * 7.0;
 
-  const x = clamp(previous.x + direction * xStep, 14, 86);
-  const y = clamp(previous.y + yStep, 36, 72);
-
-  return { x, y };
+  return keepPointInRoamArea(
+    {
+      x: previous.x + direction * xStep,
+      y: previous.y + yStep,
+    },
+    theme,
+    viewport,
+    "ambient",
+  );
 }
 
 function spacingScore(
@@ -824,6 +979,8 @@ function chooseSpacedWander(
   actors: Record<string, HabitatActorState>,
   selfId: string,
   minimumTravel = 0,
+  theme: HabitatTheme = "camp",
+  viewport: HabitatViewport = "default",
 ) {
   let bestPoint = { x: previous.x, y: previous.y };
   let bestValue = -Infinity;
@@ -831,7 +988,7 @@ function chooseSpacedWander(
   // Try enough destinations that a genuine stroll can ask for a clearly
   // visible amount of travel without giving up the soft personal-space rule.
   for (let attempt = 0; attempt < 14; attempt += 1) {
-    const candidate = shortWander(previous);
+    const candidate = shortWander(previous, theme, viewport);
     const score = spacingScore(candidate, actors, selfId);
     const travel = percentDistance(previous, candidate);
     const travelFit = minimumTravel <= 0 ? 1 : Math.min(1, travel / minimumTravel);
@@ -862,10 +1019,15 @@ function chooseSpacedWander(
     const dx = previous.x - nearest.x;
     const dy = previous.y - nearest.y;
     const magnitude = Math.hypot(dx, dy) || 1;
-    const pushed = {
-      x: clamp(previous.x + (dx / magnitude) * 5.2, 14, 86),
-      y: clamp(previous.y + (dy / magnitude) * 4.0, 36, 72),
-    };
+    const pushed = keepPointInRoamArea(
+      {
+        x: previous.x + (dx / magnitude) * 5.2,
+        y: previous.y + (dy / magnitude) * 4.0,
+      },
+      theme,
+      viewport,
+      "ambient",
+    );
 
     if (
       spacingScore(pushed, actors, selfId) >
@@ -881,10 +1043,18 @@ function chooseSpacedWander(
 function separatePairPoints(
   first: { x: number; y: number },
   second: { x: number; y: number },
+  theme: HabitatTheme = "camp",
+  viewport: HabitatViewport = "default",
+  intent: HabitatMovementIntent = "spot",
 ) {
   const distance = Math.hypot(second.x - first.x, second.y - first.y);
   const minimum = 6.8;
-  if (distance >= minimum) return [first, second] as const;
+  if (distance >= minimum) {
+    return [
+      keepPointInRoamArea(first, theme, viewport, intent),
+      keepPointInRoamArea(second, theme, viewport, intent),
+    ] as const;
+  }
 
   const centerX = (first.x + second.x) / 2;
   const centerY = (first.y + second.y) / 2;
@@ -896,14 +1066,24 @@ function separatePairPoints(
   const half = minimum / 2;
 
   return [
-    {
-      x: clamp(centerX - ux * half, 8, 92),
-      y: clamp(centerY - uy * half, 29, 78),
-    },
-    {
-      x: clamp(centerX + ux * half, 8, 92),
-      y: clamp(centerY + uy * half, 29, 78),
-    },
+    keepPointInRoamArea(
+      {
+        x: clamp(centerX - ux * half, 8, 92),
+        y: clamp(centerY - uy * half, 29, 78),
+      },
+      theme,
+      viewport,
+      intent,
+    ),
+    keepPointInRoamArea(
+      {
+        x: clamp(centerX + ux * half, 8, 92),
+        y: clamp(centerY + uy * half, 29, 78),
+      },
+      theme,
+      viewport,
+      intent,
+    ),
   ] as const;
 }
 
@@ -983,6 +1163,10 @@ function getTheme(kind: HabitatSource["kind"]): HabitatTheme {
   if (kind === "habitat") return "wild";
   if (kind === "camp" || kind === "party") return "camp";
   if (kind === "ranch") return "ranch";
+  if (kind === "mountain") return "mountain";
+  if (kind === "desert") return "desert";
+  if (kind === "beach") return "beach";
+  if (kind === "aquarium") return "aquarium";
   return "meadow";
 }
 
@@ -996,6 +1180,18 @@ function sourceDescription(source: HabitatSource) {
   }
   if (source.kind === "unassigned") {
     return "These companions are waiting for a permanent place to call home.";
+  }
+  if (source.kind === "mountain") {
+    return source.subtitle || "A rocky mountain refuge with ledges, stone paths, and high winds.";
+  }
+  if (source.kind === "desert") {
+    return source.subtitle || "A dry, sandy habitat with warm dunes and sparse shade.";
+  }
+  if (source.kind === "beach") {
+    return source.subtitle || "A sunny shoreline where your companions can relax by the surf.";
+  }
+  if (source.kind === "aquarium") {
+    return source.subtitle || "A water-filled enclosure where aquatic companions can drift and play.";
   }
   return source.subtitle || "A place where your companions can spend time together.";
 }
@@ -1379,20 +1575,19 @@ function eggGroupPairBeat(
 }
 
 function pondIsProminent(theme: HabitatTheme) {
-  // Camp already has a full ocean shoreline around the island, so it should
-  // never pretend there is a separate pond. Lab/training scenes also do not
-  // visually feature one.
-  return theme === "garden" || theme === "ranch" || theme === "wild" || theme === "meadow";
+  // Camp and beach lean on a visible shoreline instead of an inland pond.
+  // Aquarium also has a clearly visible water enclosure.
+  return theme === "garden" || theme === "ranch" || theme === "wild" || theme === "meadow" || theme === "aquarium";
 }
 
 function waterSpotForTheme(theme: HabitatTheme): "pond" | "shore" | null {
-  if (theme === "camp") return "shore";
+  if (theme === "camp" || theme === "beach") return "shore";
   if (pondIsProminent(theme)) return "pond";
   return null;
 }
 
 function visiblePondSpotForTheme(theme: HabitatTheme): "pond" | null {
-  return theme === "camp" || pondIsProminent(theme) ? "pond" : null;
+  return theme === "camp" || theme === "beach" || pondIsProminent(theme) ? "pond" : null;
 }
 
 function prefersBerries(pokemon: OwnedPokemon) {
@@ -1415,6 +1610,18 @@ function likesSand(pokemon: OwnedPokemon) {
   return hasType(pokemon, "ground", "rock", "fire", "dragon");
 }
 
+function hasGrove(theme: HabitatTheme) {
+  return theme === "camp" || theme === "garden" || theme === "meadow" || theme === "wild" || theme === "beach";
+}
+
+function hasFlowers(theme: HabitatTheme) {
+  return theme === "garden" || theme === "ranch" || theme === "wild" || theme === "meadow" || theme === "beach";
+}
+
+function hasSandZone(theme: HabitatTheme) {
+  return theme === "camp" || theme === "desert" || theme === "beach";
+}
+
 function spotLabel(spot: HabitatSpot) {
   switch (spot) {
     case "pond": return "the pond";
@@ -1426,13 +1633,22 @@ function spotLabel(spot: HabitatSpot) {
     case "training": return "the training circle";
     case "tent": return "the tent";
     case "sand": return "the sandy patch";
+    case "dune": return "the dunes";
+    case "oasis-shore": return "the oasis";
+    case "palm-shade": return "the palm shade";
     case "trees": return "the little grove";
     case "tree-perch": return "a perch in the trees";
     default: return "the clearing";
   }
 }
 
-function spotPoint(spot: HabitatSpot, pokemonId: string, role = 0) {
+function spotPoint(
+  spot: HabitatSpot,
+  pokemonId: string,
+  role = 0,
+  theme: HabitatTheme = "camp",
+  viewport: HabitatViewport = "default",
+) {
   const variant = hashString(`${pokemonId}:${spot}`) % 4;
   const points: Record<HabitatSpot, Array<{ x: number; y: number }>> = {
     pond: [
@@ -1489,19 +1705,38 @@ function spotPoint(spot: HabitatSpot, pokemonId: string, role = 0) {
       { x: 73.5, y: 64.5 },
       { x: 79.5, y: 63.0 },
     ],
-    // Ground-level positions beside the actual visible tree trunks.
+    dune: [
+      { x: 22.0, y: 61.0 },
+      { x: 69.0, y: 42.5 },
+      { x: 74.0, y: 67.0 },
+      { x: 31.0, y: 54.0 },
+    ],
+    "oasis-shore": [
+      { x: 72.5, y: 55.5 },
+      { x: 77.0, y: 50.5 },
+      { x: 84.0, y: 61.0 },
+      { x: 76.0, y: 64.0 },
+    ],
+    "palm-shade": [
+      { x: 71.0, y: 50.0 },
+      { x: 75.0, y: 47.5 },
+      { x: 83.0, y: 63.5 },
+      { x: 73.0, y: 61.5 },
+    ],
     trees: [
       { x: 15.5, y: 45.0 },
+      { x: 27.5, y: 45.2 },
       { x: 84.5, y: 42.5 },
       { x: 80.5, y: 66.0 },
+      { x: 72.8, y: 64.2 },
       { x: 18.5, y: 47.5 },
     ],
-    // Flying Pokémon need a different target: their sprite center is moved
-    // into a visible canopy rather than the old imaginary grove point.
     "tree-perch": [
       { x: 14.0, y: 35.0 },
+      { x: 26.5, y: 35.2 },
       { x: 85.5, y: 33.5 },
       { x: 81.0, y: 58.5 },
+      { x: 73.8, y: 57.4 },
       { x: 16.5, y: 36.5 },
     ],
     clearing: [
@@ -1511,7 +1746,226 @@ function spotPoint(spot: HabitatSpot, pokemonId: string, role = 0) {
       { x: 58.0, y: 64.0 },
     ],
   };
-  return points[spot][(variant + role) % points[spot].length];
+
+  const compactCampPoints: Partial<Record<HabitatSpot, Array<{ x: number; y: number }>>> = {
+    pond: [
+      { x: 74.8, y: 55.3 },
+      { x: 79.0, y: 58.3 },
+      { x: 72.0, y: 60.4 },
+      { x: 77.6, y: 61.8 },
+    ],
+    shore: [
+      { x: 82.0, y: 57.8 },
+      { x: 84.8, y: 61.5 },
+      { x: 80.4, y: 64.2 },
+      { x: 83.2, y: 66.6 },
+    ],
+    sand: [
+      { x: 71.0, y: 60.6 },
+      { x: 75.3, y: 60.0 },
+      { x: 72.8, y: 64.0 },
+      { x: 77.2, y: 63.1 },
+    ],
+    trees: [
+      { x: 14.8, y: 45.0 },
+      { x: 26.8, y: 45.0 },
+      { x: 82.8, y: 42.0 },
+      { x: 78.0, y: 64.2 },
+      { x: 71.0, y: 63.0 },
+      { x: 18.0, y: 47.0 },
+    ],
+    "tree-perch": [
+      { x: 13.6, y: 35.2 },
+      { x: 26.0, y: 35.3 },
+      { x: 83.6, y: 33.2 },
+      { x: 78.4, y: 56.9 },
+      { x: 71.8, y: 56.1 },
+      { x: 16.2, y: 36.5 },
+    ],
+  };
+
+  const sourcePoints =
+    theme === "camp" && viewport !== "default" && compactCampPoints[spot]
+      ? compactCampPoints[spot]!
+      : points[spot];
+
+  const selected = sourcePoints[(variant + role) % sourcePoints.length];
+  return keepPointInRoamArea(
+    selected,
+    theme,
+    viewport,
+    movementIntentForSpot(spot),
+  );
+}
+
+function pairSpotPoints(
+  spot: HabitatSpot,
+  pairKey: string,
+  theme: HabitatTheme = "camp",
+  viewport: HabitatViewport = "default",
+  firstIntent: HabitatMovementIntent = "spot",
+  secondIntent: HabitatMovementIntent = "spot",
+) {
+  const anchor = spotPoint(spot, pairKey, 0, theme, viewport);
+  let halfX = 3.8;
+  let halfY = 0.55;
+
+  switch (spot) {
+    case "tree-perch":
+      halfX = 3.45;
+      halfY = 0.18;
+      break;
+    case "trees":
+      halfX = 3.55;
+      halfY = 0.32;
+      break;
+    case "campfire":
+      halfX = 4.0;
+      halfY = 0.9;
+      break;
+    case "pond":
+    case "shore":
+    case "oasis-shore":
+      halfX = 3.6;
+      halfY = 0.45;
+      break;
+    case "palm-shade":
+      halfX = 3.35;
+      halfY = 0.35;
+      break;
+    case "dune":
+      halfX = 3.8;
+      halfY = 0.7;
+      break;
+    case "tent":
+      halfX = 3.7;
+      halfY = 0.5;
+      break;
+    default:
+      halfX = 3.8;
+      halfY = 0.55;
+      break;
+  }
+
+  return [
+    keepPointInRoamArea(
+      { x: anchor.x - halfX, y: anchor.y + halfY },
+      theme,
+      viewport,
+      firstIntent,
+    ),
+    keepPointInRoamArea(
+      { x: anchor.x + halfX, y: anchor.y - halfY },
+      theme,
+      viewport,
+      secondIntent,
+    ),
+  ] as const;
+}
+
+function desertSoloBeat(
+  pokemon: OwnedPokemon,
+  isNight: boolean,
+): HabitatSoloBeat | null {
+  const name = companionName(pokemon);
+  const temperament = natureTemperament(pokemon);
+
+  // Desert events should be common enough to make the habitat feel distinct,
+  // but still leave room for Nature / Egg Group / generic idle moments.
+  if (Math.random() > 0.78) return null;
+
+  const options: HabitatSoloBeat[] = [];
+
+  // A cozy oasis break works for almost everyone, with berry-preferring
+  // Pokémon getting a little extra representation.
+  if (prefersBerries(pokemon) || Math.random() < 0.55) {
+    options.push({
+      activity: "enjoying some berry juice by the oasis",
+      emote: "🍓",
+      message: `${name} is enjoying a cool cup of berry juice beside the oasis.`,
+      approachMessage: `${name} is heading over to the oasis for a refreshing berry drink.`,
+      spot: "oasis-shore",
+    });
+  }
+
+  if (!isNight && (!hasType(pokemon, "fire") || Math.random() < 0.24)) {
+    options.push({
+      activity: "seeking shade beneath the palm trees",
+      emote: "🌿",
+      message: `${name} has found a comfortable patch of shade beneath the oasis palms.`,
+      approachMessage: `${name} is making their way toward the cool shade of the palm trees.`,
+      spot: "palm-shade",
+    });
+  }
+
+  if (isNight) {
+    options.push({
+      activity: "resting beside the oasis in the cool night air",
+      emote: "✨",
+      message: `${name} is quietly enjoying the cool desert air beside the oasis.`,
+      approachMessage: `${name} is wandering over toward the oasis for a peaceful nighttime rest.`,
+      spot: "oasis-shore",
+    });
+  }
+
+  if (hasType(pokemon, "ground", "bug", "rock") || (hasType(pokemon, "fire") && Math.random() < 0.38)) {
+    options.push({
+      activity: "burrowing into the warm sand",
+      emote: "◆",
+      message: `${name} is burrowing into the sand and seems delighted by the warmth underneath.`,
+      approachMessage: `${name} is hurrying toward a warm dune to dig in.`,
+      spot: "dune",
+    });
+  }
+
+  if (
+    temperament === "playful" ||
+    temperament === "curious" ||
+    hasType(pokemon, "ground", "fairy", "normal")
+  ) {
+    options.push({
+      activity: "playing with the sand",
+      emote: temperament === "curious" ? "?" : "♪",
+      message:
+        temperament === "curious"
+          ? `${name} is drawing very deliberate little patterns in the sand.`
+          : `${name} is happily pushing the warm sand around and making tiny piles.`,
+      approachMessage: `${name} is heading over to one of the dunes to play in the sand.`,
+      spot: "dune",
+    });
+  }
+
+  if (!isNight && likesSand(pokemon)) {
+    options.push({
+      activity: "basking on top of a sun-warmed dune",
+      emote: "☀",
+      message: `${name} is stretched out on top of a dune, soaking up the desert heat.`,
+      approachMessage: `${name} is climbing onto a sunny dune to warm up.`,
+      spot: "dune",
+    });
+  }
+
+  if (temperament === "gentle" || temperament === "shy" || temperament === "relaxed") {
+    options.push({
+      activity: "watching the oasis ripple quietly",
+      emote: "💧",
+      message: `${name} is sitting quietly beside the oasis and watching the water ripple.`,
+      approachMessage: `${name} is wandering over toward the oasis for a quiet moment.`,
+      spot: "oasis-shore",
+    });
+  }
+
+  if (options.length === 0) {
+    options.push({
+      activity: "wandering between the warm dunes",
+      emote: "☀",
+      message: `${name} is calmly exploring the warm desert dunes.`,
+      approachMessage: `${name} is heading toward another dune to explore.`,
+      spot: "dune",
+    });
+  }
+
+  return randomFrom(options);
 }
 
 function describeSoloBeat(
@@ -1521,6 +1975,43 @@ function describeSoloBeat(
   eggGroups: string[],
 ): HabitatSoloBeat {
   const name = companionName(pokemon);
+
+  if (theme === "mountain" && hasType(pokemon, "rock", "ground", "steel", "dragon") && Math.random() < 0.52) {
+    return {
+      activity: "climbing along the rocky ledges",
+      emote: hasType(pokemon, "dragon") ? "✦" : "◆",
+      message: `${name} is exploring the mountain ledges with impressive confidence.`,
+      approachMessage: `${name} is making their way toward the stony slope.`,
+      spot: "clearing",
+    };
+  }
+
+  if (theme === "desert") {
+    const desertBeat = desertSoloBeat(pokemon, isNight);
+    if (desertBeat) return desertBeat;
+  }
+
+  if (theme === "beach" && hasType(pokemon, "flying", "water") && Math.random() < 0.46) {
+    return {
+      activity: hasType(pokemon, "water") ? "playing at the shoreline" : "coasting over the shoreline",
+      emote: hasType(pokemon, "water") ? "💧" : "☁",
+      message: hasType(pokemon, "water")
+        ? `${name} is happily playing where the surf meets the sand.`
+        : `${name} is gliding along the shoreline and enjoying the sea breeze.`,
+      approachMessage: `${name} is heading for the edge of the water.`,
+      spot: "shore",
+    };
+  }
+
+  if (theme === "aquarium" && hasType(pokemon, "water") && Math.random() < 0.72) {
+    return {
+      activity: "gliding through the aquarium pool",
+      emote: "💧",
+      message: `${name} is making relaxed little loops through the aquarium water.`,
+      approachMessage: `${name} is slipping back into the water.`,
+      spot: "pond",
+    };
+  }
 
   if (theme === "camp" && hasType(pokemon, "fire") && Math.random() < 0.72) {
     return {
@@ -1532,7 +2023,7 @@ function describeSoloBeat(
     };
   }
 
-  if (theme === "camp" && (hasType(pokemon, "ground", "rock") || (hasType(pokemon, "dragon") && Math.random() < 0.72)) && Math.random() < 0.42) {
+  if (hasSandZone(theme) && (hasType(pokemon, "ground", "rock") || (hasType(pokemon, "dragon") && Math.random() < 0.72)) && Math.random() < 0.42) {
     return {
       activity: "digging around in the sandy patch",
       emote: "◆",
@@ -1542,7 +2033,7 @@ function describeSoloBeat(
     };
   }
 
-  if (theme === "camp" && hasType(pokemon, "fire") && Math.random() < 0.40) {
+  if (hasSandZone(theme) && hasType(pokemon, "fire") && Math.random() < 0.40) {
     return {
       activity: "basking in the warm sand",
       emote: "☀",
@@ -1552,7 +2043,7 @@ function describeSoloBeat(
     };
   }
 
-  if (theme === "camp" && likesSand(pokemon) && Math.random() < 0.32) {
+  if (hasSandZone(theme) && likesSand(pokemon) && Math.random() < 0.32) {
     return {
       activity: "resting in the warm sand",
       emote: "☀",
@@ -1562,7 +2053,7 @@ function describeSoloBeat(
     };
   }
 
-  if ((theme === "camp" || theme === "garden" || theme === "meadow" || theme === "wild") && hasType(pokemon, "flying") && Math.random() < 0.34) {
+  if (hasGrove(theme) && hasType(pokemon, "flying") && Math.random() < 0.34) {
     return {
       activity: "perching up in the trees",
       emote: "☁",
@@ -1572,7 +2063,7 @@ function describeSoloBeat(
     };
   }
 
-  if ((theme === "camp" || theme === "garden" || theme === "meadow" || theme === "wild") && hasType(pokemon, "bug") && Math.random() < 0.34) {
+  if (hasGrove(theme) && hasType(pokemon, "bug") && Math.random() < 0.34) {
     return {
       activity: "climbing around the tree trunks",
       emote: "✿",
@@ -1582,7 +2073,7 @@ function describeSoloBeat(
     };
   }
 
-  if ((theme === "camp" || theme === "garden" || theme === "meadow" || theme === "wild") && hasType(pokemon, "grass", "fairy", "normal") && Math.random() < 0.32) {
+  if (hasGrove(theme) && hasType(pokemon, "grass", "fairy", "normal") && Math.random() < 0.32) {
     return {
       activity: "resting in the shade of the trees",
       emote: hasType(pokemon, "fairy") ? "✨" : "🌿",
@@ -1592,7 +2083,7 @@ function describeSoloBeat(
     };
   }
 
-  if ((theme === "camp" || theme === "garden" || theme === "meadow" || theme === "wild") && likesTrees(pokemon) && Math.random() < 0.24) {
+  if (hasGrove(theme) && likesTrees(pokemon) && Math.random() < 0.24) {
     return {
       activity: "exploring near the trees",
       emote: "🌿",
@@ -1666,7 +2157,7 @@ function describeSoloBeat(
     };
   }
 
-  if ((theme === "garden" || theme === "ranch" || theme === "wild" || theme === "meadow") && hasType(pokemon, "grass", "bug", "fairy") && Math.random() < 0.52) {
+  if (hasFlowers(theme) && hasType(pokemon, "grass", "bug", "fairy") && Math.random() < 0.52) {
     return {
       activity: "wandering through the flowers",
       emote: hasType(pokemon, "bug") ? "✿" : "🌿",
@@ -1758,6 +2249,77 @@ function describeSoloBeat(
   };
 }
 
+function desertPairBeat(
+  a: OwnedPokemon,
+  b: OwnedPokemon,
+  isNight: boolean,
+): HabitatPairBeat | null {
+  if (Math.random() > 0.46) return null;
+
+  const aName = companionName(a);
+  const bName = companionName(b);
+  const moments: HabitatPairBeat[] = [
+    {
+      message: `${aName} and ${bName} are sharing some cool berry juice beside the oasis.`,
+      approachMessage: `${aName} and ${bName} are heading toward the oasis for a refreshing drink.`,
+      aActivity: `sharing berry juice by the oasis with ${bName}`,
+      bActivity: `sharing berry juice by the oasis with ${aName}`,
+      aEmote: "🍓",
+      bEmote: "🍓",
+      spot: "oasis-shore",
+    },
+    {
+      message: `${aName} and ${bName} are happily making little shapes and piles in the sand together.`,
+      approachMessage: `${aName} and ${bName} are heading toward a dune to play in the sand.`,
+      aActivity: `playing in the sand with ${bName}`,
+      bActivity: `playing in the sand with ${aName}`,
+      aEmote: "♪",
+      bEmote: "♪",
+      spot: "dune",
+    },
+  ];
+
+  if (!isNight) {
+    moments.push({
+      message: `${aName} and ${bName} have squeezed into a cool patch of shade beneath the oasis palms.`,
+      approachMessage: `${aName} and ${bName} are heading toward the palm trees to get out of the sun.`,
+      aActivity: `relaxing in the palm shade with ${bName}`,
+      bActivity: `relaxing in the palm shade with ${aName}`,
+      aEmote: "🌿",
+      bEmote: "🌿",
+      spot: "palm-shade",
+    });
+  } else {
+    moments.push({
+      message: `${aName} and ${bName} are relaxing together beside the oasis under the desert night sky.`,
+      approachMessage: `${aName} and ${bName} are wandering toward the oasis for a quiet nighttime break.`,
+      aActivity: `resting by the oasis with ${bName}`,
+      bActivity: `resting by the oasis with ${aName}`,
+      aEmote: "✨",
+      bEmote: "✨",
+      spot: "oasis-shore",
+    });
+  }
+
+  const bothDiggers =
+    hasType(a, "ground", "bug", "rock") &&
+    hasType(b, "ground", "bug", "rock");
+
+  if (bothDiggers) {
+    moments.push({
+      message: `${aName} and ${bName} are enthusiastically digging into the same warm dune.`,
+      approachMessage: `${aName} and ${bName} have both picked the same dune for some digging.`,
+      aActivity: `burrowing in the warm sand with ${bName}`,
+      bActivity: `burrowing in the warm sand with ${aName}`,
+      aEmote: "◆",
+      bEmote: "◆",
+      spot: "dune",
+    });
+  }
+
+  return randomFrom(moments);
+}
+
 function describePairBeat(
   a: OwnedPokemon,
   b: OwnedPokemon,
@@ -1816,6 +2378,11 @@ function describePairBeat(
   // species, Type seniority, or evolution stage.
   const moveBeat = moveBasedPairBeat(a, b, theme);
   if (moveBeat) return moveBeat;
+
+  if (theme === "desert") {
+    const desertBeat = desertPairBeat(a, b, isNight);
+    if (desertBeat) return desertBeat;
+  }
 
   // A small tree-side berry break gives ordinary duo moments a little more
   // cozy "team hanging out together" energy.
@@ -2235,10 +2802,36 @@ export function HabitatPage({
   const ambientMoveTimersRef = useRef<Record<string, number>>({});
   const ambientMoveDeadlinesRef = useRef<Record<string, number>>({});
   const nextSceneEventAtRef = useRef(0);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const [stageWidth, setStageWidth] = useState(0);
 
   useEffect(() => {
     actorsRef.current = actors;
   }, [actors]);
+
+  useEffect(() => {
+    const node = stageRef.current;
+    if (!node) return;
+
+    const updateStageWidth = () => {
+      setStageWidth(node.getBoundingClientRect().width);
+    };
+
+    updateStageWidth();
+    window.addEventListener("resize", updateStageWidth);
+
+    if (typeof ResizeObserver === "undefined") {
+      return () => window.removeEventListener("resize", updateStageWidth);
+    }
+
+    const observer = new ResizeObserver(updateStageWidth);
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateStageWidth);
+    };
+  }, [selectedSourceKey]);
 
   const selectedSource =
     sources.find((source) => source.key === selectedSourceKey) ??
@@ -2249,12 +2842,46 @@ export function HabitatPage({
     (pokemon) => pokemon.id === selectedPokemonId,
   );
   const theme = getTheme(selectedSource?.kind ?? "party");
+  const habitatViewport = habitatViewportForWidth(stageWidth);
   const isNight = new Date().getHours() < 6 || new Date().getHours() >= 19;
   const sceneryStyle = {
     "--pelago-sheet": `url("${habitatAsset("RPGpack_sheet.png")}")`,
     "--pelago-island": `url("${habitatAsset("rpgTile000.png")}")`,
     "--pelago-pond": `url("${habitatAsset("rpgTile004.png")}")`,
   } as CSSProperties;
+
+  useEffect(() => {
+    if (scenePokemon.length === 0) return;
+
+    setActors((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      for (const pokemon of scenePokemon) {
+        const actor = next[pokemon.id];
+        if (!actor) continue;
+        const corrected = keepPointInRoamArea(
+          { x: actor.x, y: actor.y },
+          theme,
+          habitatViewport,
+          actor.zoneIntent ?? "ambient",
+        );
+        if (
+          Math.abs(corrected.x - actor.x) > 0.05 ||
+          Math.abs(corrected.y - actor.y) > 0.05
+        ) {
+          next[pokemon.id] = {
+            ...actor,
+            x: corrected.x,
+            y: corrected.y,
+          };
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [scenePokemon, theme, habitatViewport]);
 
   const clearMovementTimer = () => {
     if (movementTimerRef.current !== null) {
@@ -2329,7 +2956,7 @@ export function HabitatPage({
     const next: Record<string, HabitatActorState> = {};
     const clocks: Record<string, HabitatActorClock> = {};
     scenePokemon.forEach((pokemon, index) => {
-      next[pokemon.id] = initialActorState(pokemon, index);
+      next[pokemon.id] = initialActorState(pokemon, index, theme, habitatViewport);
       clocks[pokemon.id] = initialActorClock(pokemon, now);
     });
     actorClocksRef.current = clocks;
@@ -2374,6 +3001,7 @@ export function HabitatPage({
           isMoving: false,
           moveDurationMs: 2800,
           ambientRouteStepsLeft: 0,
+          zoneIntent: "ambient",
         };
         changed = true;
       }
@@ -2457,6 +3085,7 @@ export function HabitatPage({
           isInteracting: false,
           ambientRouteStepsLeft: 0,
           moveDurationMs: 2800,
+          zoneIntent: "ambient",
         },
       }));
       return;
@@ -2470,6 +3099,8 @@ export function HabitatPage({
         actorsRef.current,
         pokemonId,
         minimumTravel,
+        theme,
+        habitatViewport,
       );
       const actuallyMoved =
         Math.abs(position.x - actor.x) > 0.05 ||
@@ -2495,6 +3126,7 @@ export function HabitatPage({
             isInteracting: false,
             moveDurationMs: travelDurationMs,
             ambientRouteStepsLeft: actor.ambientRouteStepsLeft - 1,
+            zoneIntent: "ambient",
           },
         }));
 
@@ -2521,6 +3153,7 @@ export function HabitatPage({
         isInteracting: false,
         ambientRouteStepsLeft: 0,
         moveDurationMs: 2800,
+        zoneIntent: "ambient",
       },
     }));
   };
@@ -2574,17 +3207,36 @@ export function HabitatPage({
       eggGroupsByPokemon,
       teamAce?.id,
     );
-    const firstTarget = pairBeat.spot ? spotPoint(pairBeat.spot, first.id, 0) : null;
-    const secondTarget = pairBeat.spot ? spotPoint(pairBeat.spot, second.id, 1) : null;
+    const firstIntent = pairBeat.spot
+      ? movementIntentForActivity(first, pairBeat.spot, pairBeat.aActivity)
+      : "spot";
+    const secondIntent = pairBeat.spot
+      ? movementIntentForActivity(second, pairBeat.spot, pairBeat.bActivity)
+      : "spot";
+    const [firstTarget, secondTarget] = pairBeat.spot
+      ? pairSpotPoints(
+          pairBeat.spot,
+          `${first.id}:${second.id}:${pairBeat.spot}`,
+          theme,
+          habitatViewport,
+          firstIntent,
+          secondIntent,
+        )
+      : [null, null] as const;
 
-    const timingFirst = actorsRef.current[first.id] ?? initialActorState(first, Math.max(0, firstIndex));
-    const timingSecond = actorsRef.current[second.id] ?? initialActorState(second, Math.max(0, secondIndex));
+    const timingFirst = actorsRef.current[first.id] ?? initialActorState(first, Math.max(0, firstIndex), theme, habitatViewport);
+    const timingSecond = actorsRef.current[second.id] ?? initialActorState(second, Math.max(0, secondIndex), theme, habitatViewport);
     const timingMeetingX = (timingFirst.x + timingSecond.x) / 2;
     const timingMeetingY = (timingFirst.y + timingSecond.y) / 2;
-    const [timingFirstPoint, timingSecondPoint] = separatePairPoints(
-      firstTarget ?? { x: timingMeetingX - 3.4, y: timingMeetingY + 0.45 },
-      secondTarget ?? { x: timingMeetingX + 3.4, y: timingMeetingY - 0.45 },
-    );
+    const [timingFirstPoint, timingSecondPoint] = pairBeat.spot
+      ? [firstTarget!, secondTarget!] as const
+      : separatePairPoints(
+          { x: timingMeetingX - 3.4, y: timingMeetingY + 0.45 },
+          { x: timingMeetingX + 3.4, y: timingMeetingY - 0.45 },
+          theme,
+          habitatViewport,
+          "spot",
+        );
     const travelDurationMs = Math.max(
       interactionTravelDurationMs(timingFirst, timingFirstPoint),
       interactionTravelDurationMs(timingSecond, timingSecondPoint),
@@ -2595,16 +3247,21 @@ export function HabitatPage({
     nextSceneEventAtRef.current = now + randomMs(9, 14);
 
     setActors((current) => {
-      const firstPrevious = current[first.id] ?? initialActorState(first, Math.max(0, firstIndex));
-      const secondPrevious = current[second.id] ?? initialActorState(second, Math.max(0, secondIndex));
+      const firstPrevious = current[first.id] ?? initialActorState(first, Math.max(0, firstIndex), theme, habitatViewport);
+      const secondPrevious = current[second.id] ?? initialActorState(second, Math.max(0, secondIndex), theme, habitatViewport);
       const meetingX = (firstPrevious.x + secondPrevious.x) / 2;
       const meetingY = (firstPrevious.y + secondPrevious.y) / 2;
       const next = { ...current };
 
-      const [firstPoint, secondPoint] = separatePairPoints(
-        firstTarget ?? { x: meetingX - 3.4, y: meetingY + 0.45 },
-        secondTarget ?? { x: meetingX + 3.4, y: meetingY - 0.45 },
-      );
+      const [firstPoint, secondPoint] = pairBeat.spot
+        ? [firstTarget!, secondTarget!] as const
+        : separatePairPoints(
+            { x: meetingX - 3.4, y: meetingY + 0.45 },
+            { x: meetingX + 3.4, y: meetingY - 0.45 },
+            theme,
+            habitatViewport,
+            "spot",
+          );
 
       next[first.id] = {
         ...firstPrevious,
@@ -2619,6 +3276,7 @@ export function HabitatPage({
         isMoving: Math.abs(firstPoint.x - firstPrevious.x) > 0.05 || Math.abs(firstPoint.y - firstPrevious.y) > 0.05,
         moveDurationMs: travelDurationMs,
         ambientRouteStepsLeft: 0,
+        zoneIntent: firstIntent,
       };
 
       next[second.id] = {
@@ -2634,6 +3292,7 @@ export function HabitatPage({
         isMoving: Math.abs(secondPoint.x - secondPrevious.x) > 0.05 || Math.abs(secondPoint.y - secondPrevious.y) > 0.05,
         moveDurationMs: travelDurationMs,
         ambientRouteStepsLeft: 0,
+        zoneIntent: secondIntent,
       };
       return next;
     });
@@ -2653,6 +3312,7 @@ export function HabitatPage({
             isMoving: false,
             isInteracting: true,
             facing: firstActor.x <= (secondActor?.x ?? firstActor.x) ? 1 : -1,
+            zoneIntent: firstIntent,
           };
         }
         if (secondActor) {
@@ -2663,6 +3323,7 @@ export function HabitatPage({
             isMoving: false,
             isInteracting: true,
             facing: secondActor.x <= (firstActor?.x ?? secondActor.x) ? 1 : -1,
+            zoneIntent: secondIntent,
           };
         }
         return next;
@@ -2715,17 +3376,25 @@ export function HabitatPage({
 
     const focusIndex = scenePokemon.findIndex((pokemon) => pokemon.id === focus.id);
     const soloBeat = describeSoloBeat(focus, theme, isNight, eggGroupsByPokemon[focus.id] ?? []);
-    const focusTarget = soloBeat.spot ? spotPoint(soloBeat.spot, focus.id) : null;
-    const timingActor = actorsRef.current[focus.id] ?? initialActorState(focus, Math.max(0, focusIndex));
+    const soloIntent = movementIntentForActivity(focus, soloBeat.spot, soloBeat.activity);
+    const focusTarget = soloBeat.spot
+      ? keepPointInRoamArea(
+          spotPoint(soloBeat.spot, focus.id, 0, theme, habitatViewport),
+          theme,
+          habitatViewport,
+          soloIntent,
+        )
+      : null;
+    const timingActor = actorsRef.current[focus.id] ?? initialActorState(focus, Math.max(0, focusIndex), theme, habitatViewport);
     const timingTarget =
-      focusTarget ?? chooseSpacedWander(timingActor, actorsRef.current, focus.id);
+      focusTarget ?? chooseSpacedWander(timingActor, actorsRef.current, focus.id, 0, theme, habitatViewport);
     const travelDurationMs = interactionTravelDurationMs(timingActor, timingTarget);
 
     scheduleAfterSolo(focus, now);
     nextSceneEventAtRef.current = now + randomMs(8, 14);
 
     setActors((current) => {
-      const previous = current[focus.id] ?? initialActorState(focus, Math.max(0, focusIndex));
+      const previous = current[focus.id] ?? initialActorState(focus, Math.max(0, focusIndex), theme, habitatViewport);
       const position = focusTarget ?? timingTarget;
       const isMoving =
         Math.abs(position.x - previous.x) > 0.05 || Math.abs(position.y - previous.y) > 0.05;
@@ -2743,6 +3412,7 @@ export function HabitatPage({
           isMoving,
           moveDurationMs: travelDurationMs,
           ambientRouteStepsLeft: 0,
+          zoneIntent: focusTarget ? soloIntent : "ambient",
         },
       };
     });
@@ -2764,6 +3434,7 @@ export function HabitatPage({
               emote: soloBeat.emote,
               isMoving: false,
               isInteracting: false,
+              zoneIntent: soloBeat.spot ? soloIntent : "ambient",
             },
           };
         });
@@ -2793,7 +3464,7 @@ export function HabitatPage({
   const startQuietWander = (pokemon: OwnedPokemon, now: number) => {
     const index = scenePokemon.findIndex((candidate) => candidate.id === pokemon.id);
     const previousForTiming =
-      actorsRef.current[pokemon.id] ?? initialActorState(pokemon, Math.max(0, index));
+      actorsRef.current[pokemon.id] ?? initialActorState(pokemon, Math.max(0, index), theme, habitatViewport);
     const wanderActivity = randomFrom(ambientWanderActivities);
     const minimumTravel =
       wanderActivity === "taking a little stroll" ||
@@ -2805,6 +3476,8 @@ export function HabitatPage({
       actorsRef.current,
       pokemon.id,
       minimumTravel,
+      theme,
+      habitatViewport,
     );
     const actuallyMoved =
       Math.abs(position.x - previousForTiming.x) > 0.05 ||
@@ -2845,6 +3518,7 @@ export function HabitatPage({
           isMoving: true,
           moveDurationMs: travelDurationMs,
           ambientRouteStepsLeft,
+          zoneIntent: "ambient",
         },
       };
     });
@@ -2894,6 +3568,7 @@ export function HabitatPage({
             isInteracting: false,
             ambientRouteStepsLeft: 0,
             moveDurationMs: 2800,
+            zoneIntent: "ambient",
           };
         }
         return next;
@@ -2928,6 +3603,7 @@ export function HabitatPage({
               isInteracting: false,
               ambientRouteStepsLeft: 0,
               moveDurationMs: 2800,
+              zoneIntent: "ambient",
             };
             if (clock) {
               clock.busyUntil = 0;
@@ -2974,6 +3650,7 @@ export function HabitatPage({
             isInteracting: false,
             ambientRouteStepsLeft: 0,
             moveDurationMs: 2800,
+            zoneIntent: "ambient",
           };
         }
         return next;
@@ -3232,7 +3909,7 @@ export function HabitatPage({
             onClick={() => setSelectedSourceKey(source.key)}
             key={source.key}
           >
-            <span>{source.kind === "party" ? "⛺" : source.kind === "laboratory" ? "⚗" : source.kind === "ranch" ? "♧" : source.kind === "gym" ? "△" : source.kind === "home" ? "⌂" : "◇"}</span>
+            <span>{source.kind === "party" ? "⛺" : source.kind === "laboratory" ? "⚗" : source.kind === "ranch" ? "♧" : source.kind === "gym" ? "△" : source.kind === "home" ? "⌂" : source.kind === "mountain" ? "⛰" : source.kind === "desert" ? "◌" : source.kind === "beach" ? "≈" : source.kind === "aquarium" ? "◉" : "◇"}</span>
             <strong>{source.label}</strong>
             <small>{source.pokemon.length}</small>
           </button>
@@ -3240,11 +3917,24 @@ export function HabitatPage({
       </div>
 
       <div className="habitat-layout">
-        <div className={`habitat-stage habitat-theme-${theme} ${isNight ? "is-night" : "is-day"} ${isPaused ? "is-paused" : ""}`} style={sceneryStyle}>
+        <div ref={stageRef} data-habitat-viewport={habitatViewport} className={`habitat-stage habitat-theme-${theme} ${isNight ? "is-night" : "is-day"} ${isPaused ? "is-paused" : ""}`} style={sceneryStyle}>
           <div className="pelago-ocean-layer" aria-hidden="true" />
           <div className="pelago-sky-light" aria-hidden="true" />
           <div className="pelago-cloud pelago-cloud-one" aria-hidden="true"><i /><b /></div>
           <div className="pelago-cloud pelago-cloud-two" aria-hidden="true"><i /><b /></div>
+
+          {theme === "mountain" && (
+            <div className="pelago-mountain-sky-range" aria-hidden="true">
+              <div className="pelago-mountain-peak peak-d is-far"><i /><b /></div>
+              <div className="pelago-mountain-peak peak-e is-far"><i /><b /></div>
+              <div className="pelago-mountain-peak peak-f is-far"><i /><b /></div>
+              <div className="pelago-mountain-peak peak-g is-far"><i /><b /></div>
+
+              <div className="pelago-mountain-peak peak-a is-near"><i /><b /></div>
+              <div className="pelago-mountain-peak peak-b is-near"><i /><b /></div>
+              <div className="pelago-mountain-peak peak-c is-middle"><i /><b /></div>
+            </div>
+          )}
 
           <div className="pelago-island-layer" aria-hidden="true">
             <div className="pelago-island-shadow" />
@@ -3276,6 +3966,8 @@ export function HabitatPage({
                 <div className="pelago-camp-tree camp-tree-a"><i /><b /></div>
                 <div className="pelago-camp-tree camp-tree-b"><i /><b /></div>
                 <div className="pelago-camp-tree camp-tree-c"><i /><b /></div>
+                <div className="pelago-camp-tree camp-tree-d"><i /><b /></div>
+                <div className="pelago-camp-tree camp-tree-e"><i /><b /></div>
               </div>
               <div className="pelago-camp-props" aria-hidden="true">
                 <div className="pelago-pixel-tent"><i /><b /></div>
@@ -3302,6 +3994,64 @@ export function HabitatPage({
             <div className="pelago-garden-props" aria-hidden="true">
               <div className="pelago-berry-bush bush-a"><i /><b /><em /></div>
               <div className="pelago-berry-bush bush-b"><i /><b /></div>
+            </div>
+          )}
+          {theme === "mountain" && (
+            <div className="pelago-mountain-props" aria-hidden="true">
+              <div className="pelago-mountain-grass-patch grass-a" />
+              <div className="pelago-mountain-grass-patch grass-b" />
+              <div className="pelago-mountain-grass-patch grass-c" />
+              <div className="pelago-mountain-grass-patch grass-d" />
+              <div className="pelago-mountain-outcrop outcrop-a"><i /><b /></div>
+              <div className="pelago-mountain-outcrop outcrop-b"><i /><b /></div>
+              <div className="pelago-mountain-outcrop outcrop-c"><i /><b /></div>
+              <div className="pelago-mountain-outcrop outcrop-d"><i /><b /></div>
+              <div className="pelago-mountain-lava-pit lava-a"><i /><b /></div>
+              <div className="pelago-mountain-ledge ledge-a" />
+              <div className="pelago-mountain-ledge ledge-b" />
+              <div className="pelago-mountain-ledge ledge-c" />
+              <div className="pelago-mountain-pine pine-a"><i /><b /></div>
+              <div className="pelago-mountain-pine pine-b"><i /><b /></div>
+              <div className="pelago-mountain-pine pine-c"><i /><b /></div>
+              <div className="pelago-mountain-grotto grotto-a"><i /><b /></div>
+              <div className="pelago-rock rock-a" />
+              <div className="pelago-rock rock-b" />
+              <div className="pelago-rock rock-c" />
+              <div className="pelago-rock rock-d" />
+              <div className="pelago-pebbles pebble-a" />
+              <div className="pelago-pebbles pebble-b" />
+            </div>
+          )}
+          {theme === "desert" && (
+            <div className="pelago-desert-props" aria-hidden="true">
+              <div className="pelago-dune dune-a" />
+              <div className="pelago-dune dune-b" />
+              <div className="pelago-dune dune-c" />
+              <div className="pelago-desert-oasis oasis-a"><i /><b /></div>
+              <div className="pelago-desert-palm dpalm-a"><i /><b /><em /></div>
+              <div className="pelago-desert-palm dpalm-b"><i /><b /><em /></div>
+              <div className="pelago-desert-palm dpalm-c"><i /><b /><em /></div>
+              <div className="pelago-desert-reed reed-a"></div>
+              <div className="pelago-desert-reed reed-b"></div>
+              <div className="pelago-cactus cactus-a"><i /><b /></div>
+              <div className="pelago-cactus cactus-b"><i /><b /></div>
+            </div>
+          )}
+          {theme === "beach" && (
+            <div className="pelago-beach-props" aria-hidden="true">
+              <div className="pelago-palm palm-a"><i /><b /></div>
+              <div className="pelago-palm palm-b"><i /><b /></div>
+              <div className="pelago-shell shell-a" />
+              <div className="pelago-shell shell-b" />
+            </div>
+          )}
+          {theme === "aquarium" && (
+            <div className="pelago-aquarium-props" aria-hidden="true">
+              <div className="pelago-aquarium-floor" />
+              <div className="pelago-coral coral-a"><i /><b /></div>
+              <div className="pelago-coral coral-b"><i /><b /></div>
+              <div className="pelago-bubble-column bubbles-a"><i /><b /><em /></div>
+              <div className="pelago-bubble-column bubbles-b"><i /><b /><em /></div>
             </div>
           )}
 
@@ -3332,7 +4082,7 @@ export function HabitatPage({
             </div>
           ) : (
             scenePokemon.map((pokemon) => {
-              const actor = actors[pokemon.id] ?? initialActorState(pokemon, 0);
+              const actor = actors[pokemon.id] ?? initialActorState(pokemon, 0, theme, habitatViewport);
               const motionDelay = -((hashString(pokemon.id) % 900) / 1000);
               const style = {
                 left: `${actor.x}%`,

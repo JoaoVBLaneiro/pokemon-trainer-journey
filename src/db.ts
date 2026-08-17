@@ -113,6 +113,10 @@ export type PokemonPlaceKind =
   | "pokemon-center"
   | "camp"
   | "habitat"
+  | "mountain"
+  | "desert"
+  | "beach"
+  | "aquarium"
   | "pc"
   | "other";
 
