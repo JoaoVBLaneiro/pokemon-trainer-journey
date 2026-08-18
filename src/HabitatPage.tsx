@@ -52,9 +52,9 @@ type PendingHabitatInteraction = {
 };
 
 type HabitatTheme = "lab" | "training" | "garden" | "wild" | "camp" | "ranch" | "meadow" | "mountain" | "desert" | "beach" | "aquarium";
-type HabitatSpot = "pond" | "shore" | "campfire" | "berries" | "flowers" | "monitor" | "training" | "tent" | "sand" | "dune" | "oasis-shore" | "palm-shade" | "trees" | "tree-perch" | "clearing";
+type HabitatSpot = "pond" | "shore" | "campfire" | "berries" | "flowers" | "monitor" | "training" | "tent" | "sand" | "dune" | "oasis-shore" | "palm-shade" | "trees" | "tree-perch" | "mountain-perch" | "grotto" | "lava-edge" | "lava-pool" | "clearing";
 type HabitatViewport = "default" | "compact" | "narrow";
-type HabitatMovementIntent = "ambient" | "spot" | "water";
+type HabitatMovementIntent = "ambient" | "spot" | "water" | "lava";
 
 type HabitatSoloBeat = {
   activity: string;
@@ -837,12 +837,26 @@ function habitatNoGoZones(
   if (theme === "desert") {
     return [
       {
-        // The desert oasis is real water. Ordinary strolling and non-water
-        // spot interactions should stay on its bank rather than crossing it.
+        // The oasis is real water. Ordinary strolling and land interactions
+        // stay on the bank instead of cutting straight through the pond.
         cx: 80.0,
         cy: 57.0,
         rx: 7.7 * scale,
         ry: 5.5 * scale,
+        blockedFor: ["ambient", "spot"],
+      },
+    ];
+  }
+
+  if (theme === "mountain") {
+    return [
+      {
+        // Ordinary wandering must respect the visible lava pit. Explicit
+        // lava-swimming activities opt into the dedicated lava intent.
+        cx: 62.5,
+        cy: 46.5,
+        rx: 7.2 * scale,
+        ry: 4.6 * scale,
         blockedFor: ["ambient", "spot"],
       },
     ];
@@ -889,6 +903,7 @@ function keepPointInRoamArea(
 
 function movementIntentForSpot(spot?: HabitatSpot | null): HabitatMovementIntent {
   if (spot === "pond") return "water";
+  if (spot === "lava-pool") return "lava";
   return "spot";
 }
 
@@ -898,6 +913,10 @@ function movementIntentForActivity(
   activity: string,
 ): HabitatMovementIntent {
   if (!spot) return "ambient";
+
+  if (spot === "lava-pool" && canSwimInLava(pokemon)) {
+    return "lava";
+  }
 
   const waterActivity = /swim|splash|paddl|shallows|water|pond|surf/i.test(activity);
   if (
@@ -1225,6 +1244,28 @@ function pokemonTypes(pokemon: OwnedPokemon) {
 function hasType(pokemon: OwnedPokemon, ...types: string[]) {
   const present = new Set(pokemonTypes(pokemon));
   return types.some((type) => present.has(type));
+}
+
+function hasAbility(pokemon: OwnedPokemon, ...abilities: string[]) {
+  const ability = pokemon.ability?.apiName?.toLowerCase();
+  if (!ability) return false;
+  return abilities.some((candidate) => candidate.toLowerCase() === ability);
+}
+
+const lavaSwimmingAbilities = [
+  "flash-fire",
+  "flame-body",
+  "magma-armor",
+  "solid-rock",
+  "steam-engine",
+] as const;
+
+function canSwimInLava(pokemon: OwnedPokemon) {
+  return hasAbility(pokemon, ...lavaSwimmingAbilities);
+}
+
+function canSafelyApproachLava(pokemon: OwnedPokemon) {
+  return hasType(pokemon, "fire", "rock", "ground");
 }
 
 function normalizedEggGroups(groups: string[] | undefined) {
@@ -1638,6 +1679,10 @@ function spotLabel(spot: HabitatSpot) {
     case "palm-shade": return "the palm shade";
     case "trees": return "the little grove";
     case "tree-perch": return "a perch in the trees";
+    case "mountain-perch": return "a rocky perch";
+    case "grotto": return "the mountain grotto";
+    case "lava-edge": return "the edge of the lava pool";
+    case "lava-pool": return "the lava pool";
     default: return "the clearing";
   }
 }
@@ -1739,6 +1784,30 @@ function spotPoint(
       { x: 73.8, y: 57.4 },
       { x: 16.5, y: 36.5 },
     ],
+    "mountain-perch": [
+      { x: 27.5, y: 50.5 },
+      { x: 39.0, y: 48.0 },
+      { x: 70.5, y: 52.0 },
+      { x: 78.0, y: 56.0 },
+    ],
+    grotto: [
+      { x: 45.0, y: 68.5 },
+      { x: 48.0, y: 69.0 },
+      { x: 50.5, y: 68.0 },
+      { x: 47.0, y: 70.0 },
+    ],
+    "lava-edge": [
+      { x: 55.0, y: 47.8 },
+      { x: 69.2, y: 47.4 },
+      { x: 58.0, y: 51.2 },
+      { x: 67.2, y: 51.0 },
+    ],
+    "lava-pool": [
+      { x: 60.0, y: 45.8 },
+      { x: 64.0, y: 45.7 },
+      { x: 61.5, y: 48.0 },
+      { x: 65.2, y: 47.5 },
+    ],
     clearing: [
       { x: 43.0, y: 52.0 },
       { x: 57.0, y: 53.0 },
@@ -1837,6 +1906,19 @@ function pairSpotPoints(
       halfX = 3.8;
       halfY = 0.7;
       break;
+    case "lava-pool":
+      halfX = 2.7;
+      halfY = 0.28;
+      break;
+    case "lava-edge":
+    case "mountain-perch":
+      halfX = 3.2;
+      halfY = 0.35;
+      break;
+    case "grotto":
+      halfX = 2.8;
+      halfY = 0.3;
+      break;
     case "tent":
       halfX = 3.7;
       halfY = 0.5;
@@ -1870,14 +1952,12 @@ function desertSoloBeat(
   const name = companionName(pokemon);
   const temperament = natureTemperament(pokemon);
 
-  // Desert events should be common enough to make the habitat feel distinct,
-  // but still leave room for Nature / Egg Group / generic idle moments.
+  // Desert events are common enough to give the habitat its own identity,
+  // while still leaving room for Nature, Egg Group, and generic idle beats.
   if (Math.random() > 0.78) return null;
 
   const options: HabitatSoloBeat[] = [];
 
-  // A cozy oasis break works for almost everyone, with berry-preferring
-  // Pokémon getting a little extra representation.
   if (prefersBerries(pokemon) || Math.random() < 0.55) {
     options.push({
       activity: "enjoying some berry juice by the oasis",
@@ -1976,14 +2056,105 @@ function describeSoloBeat(
 ): HabitatSoloBeat {
   const name = companionName(pokemon);
 
-  if (theme === "mountain" && hasType(pokemon, "rock", "ground", "steel", "dragon") && Math.random() < 0.52) {
-    return {
-      activity: "climbing along the rocky ledges",
-      emote: hasType(pokemon, "dragon") ? "✦" : "◆",
-      message: `${name} is exploring the mountain ledges with impressive confidence.`,
-      approachMessage: `${name} is making their way toward the stony slope.`,
-      spot: "clearing",
-    };
+  if (theme === "mountain") {
+    // Lava swimming is Ability-gated rather than Type-gated. This makes the
+    // saved Ability on the individual Pokémon matter to habitat behavior.
+    if (canSwimInLava(pokemon) && Math.random() < 0.42) {
+      const abilityName = pokemon.ability?.displayName ?? "its Ability";
+      return {
+        activity: "swimming lazily through the lava pool",
+        emote: "🔥",
+        message: `${name} is actually swimming through the lava pool, completely at ease thanks to ${abilityName}.`,
+        approachMessage: `${name} is heading straight for the lava pool without the slightest hesitation.`,
+        spot: "lava-pool",
+      };
+    }
+
+    // Direct edge contact with lava is limited to Fire / Rock / Ground types.
+    if (canSafelyApproachLava(pokemon) && Math.random() < 0.38) {
+      const lavaMoments: HabitatSoloBeat[] = [
+        {
+          activity: "dipping its feet into the warm lava",
+          emote: "🔥",
+          message: `${name} is sitting at the edge of the lava pool and dipping its feet into the warm molten rock.`,
+          approachMessage: `${name} is carefully making its way over to the lava pool's edge.`,
+          spot: "lava-edge",
+        },
+        {
+          activity: "soaking up the heat beside the lava",
+          emote: "☀",
+          message: `${name} looks extremely comfortable basking beside the lava pool.`,
+          approachMessage: `${name} is wandering over toward the warm glow of the lava.`,
+          spot: "lava-edge",
+        },
+        {
+          activity: "watching the lava bubble",
+          emote: "🔥",
+          message: `${name} is quietly watching the molten surface bubble and shift.`,
+          approachMessage: `${name} is heading over to inspect the lava pool.`,
+          spot: "lava-edge",
+        },
+      ];
+      return randomFrom(lavaMoments);
+    }
+
+    if (hasType(pokemon, "fire", "rock", "ground", "dragon", "flying") && Math.random() < 0.44) {
+      const perchMoments: HabitatSoloBeat[] = [
+        {
+          activity: "basking in the warm sunlight on top of a rock",
+          emote: "☀",
+          message: `${name} has claimed a high rocky perch and is basking contentedly in the warm sunlight.`,
+          approachMessage: `${name} is climbing up toward one of the sun-warmed rocky perches.`,
+          spot: "mountain-perch",
+        },
+        {
+          activity: "surveying the habitat from a rocky perch",
+          emote: hasType(pokemon, "dragon") ? "✦" : "◆",
+          message: `${name} is perched high above the ground, quietly surveying the mountain refuge.`,
+          approachMessage: `${name} is making its way up toward a higher rocky ledge.`,
+          spot: "mountain-perch",
+        },
+      ];
+      return randomFrom(perchMoments);
+    }
+
+    const grottoAffinity = hasType(pokemon, "rock", "ground", "dragon", "dark", "ghost", "ice");
+    if (Math.random() < (grottoAffinity ? 0.36 : 0.18)) {
+      const grottoMoments: HabitatSoloBeat[] = [
+        {
+          activity: "finding comfort in the chill grotto",
+          emote: "💤",
+          message: `${name} has settled into the cool stone of the grotto and looks completely at ease.`,
+          approachMessage: `${name} is wandering toward the sheltered mountain grotto.`,
+          spot: "grotto",
+        },
+        {
+          activity: "napping in the dark cave",
+          emote: "💤",
+          message: `${name} has curled up inside the dark little cave for a peaceful nap.`,
+          approachMessage: `${name} is slipping into the quiet darkness of the grotto.`,
+          spot: "grotto",
+        },
+        {
+          activity: "resting against the cool cave wall",
+          emote: "◆",
+          message: `${name} is relaxing against the cool stone inside the grotto.`,
+          approachMessage: `${name} is heading into the sheltered grotto for a break.`,
+          spot: "grotto",
+        },
+      ];
+      return randomFrom(grottoMoments);
+    }
+
+    if (hasType(pokemon, "rock", "ground", "steel", "dragon") && Math.random() < 0.52) {
+      return {
+        activity: "climbing along the rocky ledges",
+        emote: hasType(pokemon, "dragon") ? "✦" : "◆",
+        message: `${name} is exploring the mountain ledges with impressive confidence.`,
+        approachMessage: `${name} is making their way toward the stony slope.`,
+        spot: "mountain-perch",
+      };
+    }
   }
 
   if (theme === "desert") {
@@ -4039,10 +4210,18 @@ export function HabitatPage({
           )}
           {theme === "beach" && (
             <div className="pelago-beach-props" aria-hidden="true">
-              <div className="pelago-palm palm-a"><i /><b /></div>
-              <div className="pelago-palm palm-b"><i /><b /></div>
-              <div className="pelago-shell shell-a" />
-              <div className="pelago-shell shell-b" />
+              <div className="pelago-beach-shoreline shore-a"><i /><b /></div>
+              <div className="pelago-beach-land-props">
+                <div className="pelago-palm palm-a"><i /><b /><em /></div>
+                <div className="pelago-palm palm-b"><i /><b /><em /></div>
+                <div className="pelago-palm palm-c"><i /><b /><em /></div>
+                <div className="pelago-palm palm-d"><i /><b /><em /></div>
+                <div className="pelago-palm palm-e"><i /><b /><em /></div>
+                <div className="pelago-beach-kiosk"><i /><b /><em /></div>
+                <div className="pelago-shell shell-a" />
+                <div className="pelago-shell shell-b" />
+                <div className="pelago-shell shell-c" />
+              </div>
             </div>
           )}
           {theme === "aquarium" && (
