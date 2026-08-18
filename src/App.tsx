@@ -74,6 +74,7 @@ import {
   type EvolutionOption,
 } from "./pokeapi";
 import { HabitatPage } from "./HabitatPage";
+import { DesktopSettingsPage } from "./DesktopSettingsPage";
 import "./App.css";
 
 const pokemonTypes = [
@@ -260,6 +261,7 @@ const navItems = [
   { to: "/places", label: "Places", icon: "⌖" },
   { to: "/habitat", label: "Habitat", icon: "♧" },
   { to: "/journal", label: "Journal", icon: "▤" },
+  { to: "/desktop", label: "Desktop", icon: "▣" },
   { to: "/data", label: "Data", icon: "⇄" },
 ];
 
@@ -5978,6 +5980,10 @@ function AppShell() {
                 onUndoEvolution={(memory) => void handleUndoEvolution(memory)}
               />
             }
+          />
+          <Route
+            path="/desktop"
+            element={<DesktopSettingsPage />}
           />
           <Route
             path="/data"

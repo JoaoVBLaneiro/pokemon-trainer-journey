@@ -1,0 +1,331 @@
+.desktop-settings-page {
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: 42px 34px 72px;
+}
+
+.desktop-settings-header {
+  max-width: 720px;
+  margin-bottom: 28px;
+}
+
+.desktop-settings-header h1 {
+  margin: 7px 0 10px;
+  color: var(--ink, #173d34);
+  font-size: clamp(2rem, 4vw, 3.1rem);
+  line-height: 1;
+}
+
+.desktop-settings-header p {
+  max-width: 620px;
+  margin: 0;
+  color: #68756f;
+  line-height: 1.65;
+}
+
+.desktop-settings-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.desktop-setting-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 24px;
+  border: 1px solid #d8e3dc;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, .86);
+  box-shadow: 0 12px 34px rgba(26, 69, 57, .055);
+}
+
+.desktop-setting-card-muted {
+  opacity: .72;
+}
+
+.desktop-setting-copy {
+  display: flex;
+  align-items: flex-start;
+  gap: 17px;
+}
+
+.desktop-setting-icon {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 15px;
+  background: #e7f1eb;
+  color: #22614e;
+  font-size: 20px;
+}
+
+.desktop-setting-copy strong {
+  display: block;
+  margin: 2px 0 6px;
+  color: #173d34;
+  font-size: 1rem;
+}
+
+.desktop-setting-copy p {
+  max-width: 650px;
+  margin: 0;
+  color: #718079;
+  font-size: .91rem;
+  line-height: 1.55;
+}
+
+.desktop-toggle {
+  flex: 0 0 auto;
+  min-width: 102px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid #cfddd4;
+  border-radius: 999px;
+  background: #f8faf8;
+  color: #5c6963;
+  cursor: pointer;
+  font: inherit;
+}
+
+.desktop-toggle-track {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: #ced8d2;
+  transition: background .2s ease;
+}
+
+.desktop-toggle-track i {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 5px rgba(0,0,0,.16);
+  transition: transform .2s ease;
+}
+
+.desktop-toggle.is-on {
+  border-color: #9bc1ae;
+  background: #edf7f1;
+  color: #205c49;
+}
+
+.desktop-toggle.is-on .desktop-toggle-track {
+  background: #2f735d;
+}
+
+.desktop-toggle.is-on .desktop-toggle-track i {
+  transform: translateX(16px);
+}
+
+@media (max-width: 720px) {
+  .desktop-settings-page {
+    padding: 28px 18px 90px;
+  }
+
+  .desktop-setting-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .desktop-toggle {
+    align-self: flex-start;
+  }
+}
+
+
+.desktop-setting-card-column {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.desktop-app-visibility-controls {
+  display: grid;
+  gap: 17px;
+  padding-top: 4px;
+}
+
+.desktop-field {
+  display: grid;
+  max-width: 420px;
+  gap: 7px;
+}
+
+.desktop-field > span,
+.desktop-saved-apps > span {
+  color: #68756f;
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.desktop-field select {
+  min-height: 44px;
+  padding: 0 13px;
+  border: 1px solid #cfddd4;
+  border-radius: 13px;
+  background: #fbfcfb;
+  color: #173d34;
+  font: inherit;
+}
+
+.desktop-app-picker-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.desktop-app-picker-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.desktop-app-picker-heading strong {
+  color: #24493e;
+  font-size: .93rem;
+}
+
+.desktop-app-picker-heading span {
+  color: #7b8781;
+  font-size: .8rem;
+}
+
+.desktop-secondary-button {
+  padding: 9px 13px;
+  border: 1px solid #cfdcd4;
+  border-radius: 11px;
+  background: #f8faf8;
+  color: #315e50;
+  cursor: pointer;
+  font: inherit;
+  font-size: .84rem;
+  font-weight: 700;
+}
+
+.desktop-secondary-button:disabled {
+  cursor: default;
+  opacity: .55;
+}
+
+.desktop-running-apps {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 9px;
+  max-height: 330px;
+  overflow: auto;
+  padding: 3px;
+}
+
+.desktop-running-app {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid #d8e3dc;
+  border-radius: 14px;
+  background: #fbfcfb;
+  color: #264b40;
+  cursor: pointer;
+  text-align: left;
+}
+
+.desktop-running-app:hover {
+  border-color: #a9c8b8;
+  background: #f4f9f6;
+}
+
+.desktop-running-app.is-selected {
+  border-color: #71a88f;
+  background: #eaf5ef;
+}
+
+.desktop-app-check {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #c9d7cf;
+  border-radius: 8px;
+  background: #fff;
+  color: #28624e;
+  font-size: .82rem;
+  font-weight: 800;
+}
+
+.desktop-running-app.is-selected .desktop-app-check {
+  border-color: #72a991;
+  background: #d9eee3;
+}
+
+.desktop-running-app-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.desktop-running-app-copy strong,
+.desktop-running-app-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-running-app-copy strong {
+  font-size: .88rem;
+}
+
+.desktop-running-app-copy small {
+  color: #7a8781;
+  font-size: .72rem;
+}
+
+.desktop-empty-apps {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 18px;
+  border: 1px dashed #d6e0da;
+  border-radius: 14px;
+  color: #7b8781;
+  font-size: .85rem;
+}
+
+.desktop-saved-apps {
+  display: grid;
+  gap: 8px;
+}
+
+.desktop-saved-apps > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.desktop-saved-apps button {
+  padding: 7px 10px;
+  border: 1px solid #cfe0d6;
+  border-radius: 999px;
+  background: #eef7f2;
+  color: #315f50;
+  cursor: pointer;
+  font: inherit;
+  font-size: .78rem;
+}
+
+.desktop-saved-apps button b {
+  margin-left: 4px;
+  font-size: .9em;
+}

@@ -1,0 +1,1472 @@
+html.desktop-overlay-mode,
+body.desktop-overlay-mode,
+body.desktop-overlay-mode #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent !important;
+}
+
+body.desktop-overlay-mode {
+  min-width: 0 !important;
+  min-height: 0 !important;
+}
+
+body.desktop-overlay-mode #root {
+  max-width: none !important;
+  padding: 0 !important;
+}
+
+.desktop-overlay-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: transparent;
+  user-select: none;
+}
+
+.desktop-pokemon {
+  --desktop-move-duration: 4800ms;
+  --desktop-bounce-delay: 0s;
+  --desktop-sprite-size: clamp(60px, 3.5vw, 90px);
+
+  position: absolute;
+  width: var(--desktop-sprite-size);
+  height: var(--desktop-sprite-size);
+  transform: translate(-50%, -100%);
+  transform-origin: 50% 100%;
+  transition:
+    left var(--desktop-move-duration) linear,
+    top var(--desktop-move-duration) linear;
+  will-change: left, top;
+  filter: drop-shadow(0 5px 3px rgba(0, 0, 0, .12));
+}
+
+.desktop-pokemon-bouncer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  transform-origin: 50% 100%;
+  animation: desktop-pokemon-idle-bounce .72s ease-in-out infinite alternate;
+  animation-delay: var(--desktop-bounce-delay);
+}
+
+.desktop-pokemon.is-moving .desktop-pokemon-bouncer {
+  animation-name: desktop-pokemon-walk-bounce;
+  animation-duration: .48s;
+}
+
+.desktop-pokemon.activity-hover .desktop-pokemon-bouncer {
+  animation-name: desktop-pokemon-hover;
+  animation-duration: 1.35s;
+}
+
+.desktop-pokemon.activity-drift .desktop-pokemon-bouncer {
+  animation-name: desktop-pokemon-drift;
+  animation-duration: 1.7s;
+}
+
+.desktop-pokemon.activity-nap .desktop-pokemon-bouncer {
+  animation-name: desktop-pokemon-nap;
+  animation-duration: 1.8s;
+}
+
+.desktop-pokemon.activity-play .desktop-pokemon-bouncer,
+.desktop-pokemon.activity-zigzag .desktop-pokemon-bouncer {
+  animation-name: desktop-pokemon-play;
+  animation-duration: .52s;
+}
+
+.desktop-pokemon.activity-train .desktop-pokemon-bouncer {
+  animation-name: desktop-pokemon-train;
+  animation-duration: .62s;
+}
+
+.desktop-pokemon.activity-observe .desktop-pokemon-bouncer {
+  animation-duration: 1.05s;
+}
+
+.desktop-pokemon.activity-sunbathe .desktop-pokemon-bouncer {
+  animation-name: desktop-pokemon-sunbathe;
+  animation-duration: 1.55s;
+}
+
+.desktop-pokemon.activity-stretch .desktop-pokemon-bouncer {
+  animation-name: desktop-pokemon-stretch;
+  animation-duration: 1.15s;
+}
+
+.desktop-pokemon-bouncer img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  transform-origin: 50% 100%;
+}
+
+.desktop-pokemon-shadow {
+  position: absolute;
+  z-index: -1;
+  left: 50%;
+  bottom: 4%;
+  width: 52%;
+  height: 12%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .14);
+  filter: blur(1px);
+  animation: desktop-pokemon-shadow .72s ease-in-out infinite alternate;
+  animation-delay: var(--desktop-bounce-delay);
+}
+
+.desktop-pokemon.is-moving .desktop-pokemon-shadow {
+  animation-duration: .48s;
+}
+
+.desktop-pokemon.activity-hover .desktop-pokemon-shadow,
+.desktop-pokemon.activity-drift .desktop-pokemon-shadow {
+  width: 42%;
+  opacity: .08;
+}
+
+.desktop-pokemon-emote {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  top: -26%;
+  min-width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(250, 252, 248, .88);
+  color: #173d34;
+  font: 700 13px/1 system-ui, sans-serif;
+  box-shadow:
+    0 3px 9px rgba(0, 0, 0, .10),
+    inset 0 0 0 1px rgba(24, 76, 61, .08);
+  animation: desktop-emote-pop .24s ease-out both;
+}
+
+
+.desktop-pokemon-effects {
+  position: absolute;
+  inset: -18% -18% 6% -18%;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.desktop-effect {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  user-select: none;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .12));
+}
+
+.desktop-pokemon.activity-train .desktop-pokemon-bouncer {
+  animation-name: desktop-pokemon-train;
+  animation-duration: .44s;
+}
+
+.desktop-pokemon.activity-train .desktop-pokemon-shadow {
+  animation-duration: .44s;
+}
+
+.desktop-pokemon.activity-sunbathe .desktop-pokemon-bouncer {
+  animation-name: desktop-pokemon-sunbathe;
+  animation-duration: 1.35s;
+}
+
+.desktop-pokemon.activity-observe .desktop-pokemon-bouncer {
+  animation-name: desktop-pokemon-observe;
+  animation-duration: 1.14s;
+}
+
+.desktop-pokemon.activity-stretch .desktop-pokemon-bouncer {
+  animation-name: desktop-pokemon-stretch;
+  animation-duration: 1s;
+}
+
+.desktop-pokemon.activity-train .desktop-pokemon-bouncer img {
+  animation: desktop-sprite-jab .36s linear infinite alternate;
+}
+
+.desktop-pokemon.activity-sunbathe .desktop-pokemon-bouncer img {
+  animation: desktop-sprite-tilt 1.35s ease-in-out infinite alternate;
+}
+
+.desktop-pokemon.activity-play .desktop-pokemon-bouncer img,
+.desktop-pokemon.activity-zigzag .desktop-pokemon-bouncer img {
+  animation: desktop-sprite-wiggle .62s ease-in-out infinite alternate;
+}
+
+.desktop-pokemon.activity-hover .desktop-pokemon-bouncer img,
+.desktop-pokemon.activity-drift .desktop-pokemon-bouncer img {
+  animation: desktop-sprite-tilt 1.55s ease-in-out infinite alternate;
+}
+
+.desktop-pokemon.activity-observe .desktop-pokemon-bouncer img {
+  animation: desktop-sprite-look 1.1s ease-in-out infinite alternate;
+}
+
+.desktop-pokemon.activity-stretch .desktop-pokemon-bouncer img {
+  animation: desktop-sprite-stretch 1s ease-in-out infinite alternate;
+}
+
+.desktop-pokemon.activity-nap .desktop-pokemon-bouncer img {
+  animation: desktop-sprite-nap 1.8s ease-in-out infinite alternate;
+}
+
+.effect-sparkles .sparkle,
+.effect-snack .snack {
+  color: #fff4a2;
+  text-shadow: 0 0 8px rgba(255, 236, 137, .55);
+  font-size: 13px;
+  animation: desktop-sparkle-pop 1.5s ease-in-out infinite;
+}
+
+.effect-snack .snack {
+  color: #ffe9b5;
+}
+
+.effect-snack .snack-c {
+  color: #ffd3da;
+  font-size: 11px;
+}
+
+.effect-music .note {
+  color: #f6ed9b;
+  font-size: 12px;
+  animation: desktop-note-float 1.45s ease-in-out infinite;
+}
+
+.effect-music .sparkle {
+  color: rgba(255, 247, 192, .9);
+  font-size: 10px;
+  animation: desktop-sparkle-pop 1.45s ease-in-out infinite;
+}
+
+.effect-battle .impact {
+  width: 16px;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 240, 205, 0), rgba(255, 240, 205, .95), rgba(255, 240, 205, 0));
+  box-shadow: 0 0 8px rgba(255, 244, 202, .24);
+  animation: desktop-battle-slash .52s ease-in-out infinite;
+}
+
+.effect-battle .impact-a {
+  --slash-rotation: 35deg;
+  transform: rotate(35deg);
+}
+
+.effect-battle .impact-b {
+  --slash-rotation: -35deg;
+  transform: rotate(-35deg);
+}
+
+.effect-battle .burst {
+  color: #fff0b3;
+  font-size: 12px;
+  animation: desktop-burst-pop .62s ease-in-out infinite;
+}
+
+.effect-sleep .sleep {
+  color: rgba(236, 243, 255, .94);
+  font: 700 11px/1 system-ui, sans-serif;
+  animation: desktop-sleep-float 2s ease-in-out infinite;
+}
+
+.effect-focus .focus {
+  color: rgba(240, 248, 221, .94);
+  font: 700 11px/1 system-ui, sans-serif;
+  animation: desktop-focus-blink 1.4s ease-in-out infinite;
+}
+
+.effect-stretch .stretch-line {
+  width: 12px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(240, 247, 214, .92);
+  box-shadow: 0 0 8px rgba(240, 247, 214, .14);
+  animation: desktop-stretch-mark 1s ease-in-out infinite;
+}
+
+.sparkle-a,
+.note-a,
+.sleep-a,
+.focus-a,
+.stretch-a,
+.snack-a,
+.impact-a {
+  left: 6%;
+  top: 18%;
+}
+
+.sparkle-b,
+.note-b,
+.sleep-b,
+.focus-b,
+.stretch-b,
+.snack-b,
+.impact-b {
+  right: 8%;
+  top: 6%;
+}
+
+.sparkle-c,
+.sleep-c,
+.snack-c,
+.burst-c {
+  left: 54%;
+  top: -4%;
+}
+
+.note-a {
+  top: 28%;
+}
+
+.note-b {
+  top: 10%;
+}
+
+.sleep-a {
+  top: -2%;
+}
+
+.sleep-b {
+  top: -18%;
+}
+
+.sleep-c {
+  top: -32%;
+}
+
+.focus-a {
+  left: 56%;
+  top: -10%;
+}
+
+.focus-b {
+  right: 12%;
+  top: 10%;
+}
+
+.stretch-a {
+  left: -2%;
+  top: 42%;
+  transform: rotate(-18deg);
+}
+
+.stretch-b {
+  right: -2%;
+  top: 38%;
+  transform: rotate(18deg);
+}
+
+.snack-a {
+  left: 8%;
+  top: 14%;
+}
+
+.snack-b {
+  right: 6%;
+  top: 18%;
+}
+
+.snack-c {
+  left: 54%;
+  top: 2%;
+}
+
+.impact-a {
+  left: -2%;
+  top: 26%;
+}
+
+.impact-b {
+  right: -2%;
+  top: 18%;
+}
+
+.burst-c {
+  left: 56%;
+  top: 6%;
+}
+
+
+.desktop-pokemon-fallback {
+  display: grid;
+  width: 70%;
+  height: 70%;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(246, 250, 244, .92);
+  color: #153f35;
+  font: 700 24px/1 system-ui, sans-serif;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, .14);
+}
+
+.desktop-overlay-empty {
+  position: fixed;
+  left: 22px;
+  bottom: 22px;
+  display: grid;
+  max-width: 390px;
+  gap: 3px;
+  padding: 11px 14px;
+  border: 1px solid rgba(255, 255, 255, .24);
+  border-radius: 12px;
+  background: rgba(19, 56, 47, .72);
+  color: rgba(255, 255, 255, .94);
+  font: 500 12px/1.45 system-ui, sans-serif;
+  backdrop-filter: blur(8px);
+}
+
+.desktop-overlay-empty strong {
+  font-weight: 750;
+}
+
+.desktop-overlay-empty span {
+  color: rgba(255, 255, 255, .76);
+}
+
+@keyframes desktop-pokemon-idle-bounce {
+  from {
+    transform: translateY(0) rotate(-1deg);
+  }
+  to {
+    transform: translateY(-4px) rotate(1deg);
+  }
+}
+
+@keyframes desktop-pokemon-walk-bounce {
+  from {
+    transform: translateY(0) rotate(-1.8deg) scaleY(1);
+  }
+  to {
+    transform: translateY(-8px) rotate(1.8deg) scaleY(.98);
+  }
+}
+
+@keyframes desktop-pokemon-hover {
+  from {
+    transform: translateY(-2px) rotate(-1deg);
+  }
+  to {
+    transform: translateY(-11px) rotate(1deg);
+  }
+}
+
+@keyframes desktop-pokemon-drift {
+  0% {
+    transform: translate(-2px, -1px) rotate(-1.4deg);
+  }
+  50% {
+    transform: translate(3px, -8px) rotate(1deg);
+  }
+  100% {
+    transform: translate(-1px, -4px) rotate(1.8deg);
+  }
+}
+
+@keyframes desktop-pokemon-nap {
+  from {
+    transform: translateY(2px) rotate(-1deg) scaleY(.94);
+  }
+  to {
+    transform: translateY(3px) rotate(1deg) scaleY(.97);
+  }
+}
+
+@keyframes desktop-pokemon-play {
+  from {
+    transform: translateY(0) rotate(-3deg);
+  }
+  to {
+    transform: translateY(-10px) rotate(3deg);
+  }
+}
+
+@keyframes desktop-pokemon-train {
+  0% {
+    transform: translateX(-6px) translateY(-1px) rotate(-4deg);
+  }
+  35% {
+    transform: translateX(6px) translateY(-8px) rotate(4deg);
+  }
+  70% {
+    transform: translateX(-4px) translateY(-3px) rotate(-3deg);
+  }
+  100% {
+    transform: translateX(4px) translateY(-7px) rotate(3deg);
+  }
+}
+
+@keyframes desktop-pokemon-sunbathe {
+  from {
+    transform: translateY(2px) rotate(-3deg) scale(.99);
+  }
+  to {
+    transform: translateY(-3px) rotate(3deg) scale(1.03);
+  }
+}
+
+@keyframes desktop-pokemon-stretch {
+  from {
+    transform: translateY(0) scaleY(.96) scaleX(1.03);
+  }
+  to {
+    transform: translateY(-5px) scaleY(1.04) scaleX(.98);
+  }
+}
+
+@keyframes desktop-pokemon-shadow {
+  from {
+    transform: translateX(-50%) scaleX(1);
+    opacity: .16;
+  }
+  to {
+    transform: translateX(-50%) scaleX(.78);
+    opacity: .09;
+  }
+}
+
+@keyframes desktop-emote-pop {
+  from {
+    transform: translateX(-50%) translateY(5px) scale(.72);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+
+@keyframes desktop-pokemon-observe {
+  0% {
+    transform: translateY(0) rotate(-1deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(1.4deg);
+  }
+  100% {
+    transform: translateY(-1px) rotate(-.6deg);
+  }
+}
+
+@keyframes desktop-sprite-jab {
+  from {
+    transform: scaleX(var(--desktop-facing, 1)) translateX(-1px) rotate(-2deg);
+  }
+  to {
+    transform: scaleX(var(--desktop-facing, 1)) translateX(2px) rotate(2deg);
+  }
+}
+
+@keyframes desktop-sprite-tilt {
+  from {
+    transform: scaleX(var(--desktop-facing, 1)) rotate(-3deg);
+  }
+  to {
+    transform: scaleX(var(--desktop-facing, 1)) rotate(3deg);
+  }
+}
+
+@keyframes desktop-sprite-wiggle {
+  0% {
+    transform: scaleX(var(--desktop-facing, 1)) rotate(-4deg);
+  }
+  50% {
+    transform: scaleX(var(--desktop-facing, 1)) rotate(3deg) translateY(-1px);
+  }
+  100% {
+    transform: scaleX(var(--desktop-facing, 1)) rotate(-2deg);
+  }
+}
+
+@keyframes desktop-sprite-look {
+  from {
+    transform: scaleX(var(--desktop-facing, 1)) rotate(-2deg) translateX(-1px);
+  }
+  to {
+    transform: scaleX(var(--desktop-facing, 1)) rotate(2deg) translateX(1px);
+  }
+}
+
+@keyframes desktop-sprite-stretch {
+  from {
+    transform: scaleX(var(--desktop-facing, 1)) scaleY(.95) scaleX(1.03);
+  }
+  to {
+    transform: scaleX(var(--desktop-facing, 1)) scaleY(1.05) scaleX(.98) translateY(-2px);
+  }
+}
+
+@keyframes desktop-sprite-nap {
+  from {
+    transform: scaleX(var(--desktop-facing, 1)) translateY(1px) rotate(-2deg);
+  }
+  to {
+    transform: scaleX(var(--desktop-facing, 1)) translateY(2px) rotate(1deg);
+  }
+}
+
+@keyframes desktop-sparkle-pop {
+  0% {
+    transform: translateY(4px) scale(.7);
+    opacity: 0;
+  }
+  35% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-8px) scale(.85);
+    opacity: 0;
+  }
+}
+
+@keyframes desktop-note-float {
+  0% {
+    transform: translateY(4px) rotate(-6deg) scale(.86);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-12px) rotate(6deg) scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes desktop-battle-slash {
+  0% {
+    opacity: 0;
+    transform: scaleX(.2) rotate(var(--slash-rotation, 35deg));
+  }
+  25% {
+    opacity: 1;
+    transform: scaleX(1) rotate(var(--slash-rotation, 35deg));
+  }
+  100% {
+    opacity: 0;
+    transform: scaleX(1.18) rotate(var(--slash-rotation, 35deg));
+  }
+}
+
+@keyframes desktop-burst-pop {
+  0% {
+    transform: scale(.7);
+    opacity: 0;
+  }
+  40% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(.86) translateY(-5px);
+    opacity: 0;
+  }
+}
+
+@keyframes desktop-sleep-float {
+  0% {
+    transform: translateY(4px) scale(.82);
+    opacity: 0;
+  }
+  40% {
+    opacity: .92;
+  }
+  100% {
+    transform: translateY(-10px) scale(1.02);
+    opacity: 0;
+  }
+}
+
+@keyframes desktop-focus-blink {
+  0%, 100% {
+    opacity: .35;
+    transform: scale(.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes desktop-stretch-mark {
+  0%, 100% {
+    opacity: .2;
+    transform: scaleX(.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleX(1.2);
+  }
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  /* Desktop companions intentionally keep their tiny idle motion here.
+     A real Pause companions control belongs in the later desktop-control phase. */
+  .desktop-pokemon,
+  .desktop-pokemon-bouncer,
+  .desktop-pokemon-shadow,
+  .desktop-pokemon-emote {
+    animation-play-state: running;
+  }
+}
+
+
+.desktop-activity-feed {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 999999;
+  width: min(360px, calc(100vw - 44px));
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 15px;
+  border: 1px solid rgba(222, 239, 230, .24);
+  border-radius: 15px;
+  background: rgba(19, 54, 46, .82);
+  color: rgba(255, 255, 255, .94);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .16);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+  animation:
+    desktop-feed-enter .28s ease-out both,
+    desktop-feed-leave .42s ease-in 6.72s forwards;
+}
+
+
+.desktop-activity-feed {
+  transition: bottom .24s ease, transform .24s ease;
+}
+
+.desktop-activity-feed-solo {
+  bottom: 22px;
+}
+
+.desktop-activity-feed-priority {
+  bottom: 22px;
+  border-color: rgba(244, 226, 151, .30);
+  background: rgba(25, 67, 56, .90);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .18);
+}
+
+.desktop-activity-feed-priority.is-stacked {
+  bottom: 94px;
+}
+
+.desktop-activity-feed-priority > span {
+  color: #ffe49a;
+}
+
+.desktop-activity-feed > span {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: #f0d984;
+  font-size: 12px;
+}
+
+.desktop-activity-feed p {
+  margin: 0;
+  font: 600 12.5px/1.5 system-ui, sans-serif;
+  letter-spacing: .01em;
+}
+
+@keyframes desktop-feed-enter {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes desktop-feed-leave {
+  to {
+    transform: translateY(7px);
+    opacity: 0;
+  }
+}
+
+
+/* ========================================================================== 
+   DESKTOP MOUSE INTERACTIONS
+   Only the Pokémon themselves become clickable. Electron switches the rest of
+   the transparent overlay back to click-through immediately.
+   ========================================================================== */
+.desktop-overlay-root.mouse-interactions-enabled .desktop-pokemon {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.desktop-overlay-root:not(.mouse-interactions-enabled) .desktop-pokemon {
+  pointer-events: none;
+}
+
+.desktop-pokemon.is-cursor-hovered:not(.is-petted) .desktop-pokemon-bouncer {
+  animation: desktop-cursor-notice .42s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.is-cursor-hovered:not(.is-petted) .desktop-pokemon-shadow {
+  animation-duration: .42s;
+}
+
+.desktop-pokemon.is-petted .desktop-pokemon-bouncer {
+  animation: desktop-pokemon-petted .34s ease-in-out 3 alternate !important;
+}
+
+.desktop-pokemon.is-petted .desktop-pokemon-shadow {
+  animation: desktop-petted-shadow .34s ease-in-out 3 alternate !important;
+}
+
+.desktop-cursor-notice {
+  position: absolute;
+  z-index: 7;
+  left: 54%;
+  top: -17%;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(250, 252, 248, .92);
+  color: #2a5f50;
+  font: 800 11px/1 system-ui, sans-serif;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .10);
+  animation: desktop-cursor-notice-pop .28s ease-out both;
+  pointer-events: none;
+}
+
+.desktop-pet-effects {
+  position: absolute;
+  inset: -26% -22% 0;
+  z-index: 8;
+  pointer-events: none;
+}
+
+.pet-heart,
+.pet-sparkle {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .10));
+}
+
+.pet-heart {
+  color: #f4a8ad;
+  font: 800 13px/1 system-ui, sans-serif;
+  animation: desktop-pet-heart 1.02s ease-out both;
+}
+
+.pet-sparkle {
+  color: #fff1a6;
+  font: 700 11px/1 system-ui, sans-serif;
+  animation: desktop-pet-sparkle .82s ease-out both;
+}
+
+.heart-a { left: 17%; top: 27%; }
+.heart-b { right: 14%; top: 7%; animation-delay: .10s; }
+.pet-sparkle-a { left: 47%; top: -2%; animation-delay: .04s; }
+.pet-sparkle-b { right: 3%; top: 38%; animation-delay: .16s; }
+
+@keyframes desktop-cursor-notice {
+  from {
+    transform: translateY(0) rotate(-3deg) scale(.99);
+  }
+  to {
+    transform: translateY(-6px) rotate(3deg) scale(1.025);
+  }
+}
+
+@keyframes desktop-cursor-notice-pop {
+  from {
+    transform: translateY(5px) scale(.65);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes desktop-pokemon-petted {
+  0% {
+    transform: translateY(2px) rotate(-5deg) scaleX(.98) scaleY(1.02);
+  }
+  55% {
+    transform: translateY(-11px) rotate(5deg) scaleX(1.04) scaleY(.97);
+  }
+  100% {
+    transform: translateY(-4px) rotate(-2deg) scale(1.015);
+  }
+}
+
+@keyframes desktop-petted-shadow {
+  from {
+    transform: translateX(-50%) scaleX(1.03);
+    opacity: .15;
+  }
+  to {
+    transform: translateX(-50%) scaleX(.70);
+    opacity: .07;
+  }
+}
+
+@keyframes desktop-pet-heart {
+  0% {
+    transform: translateY(9px) scale(.55) rotate(-8deg);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-25px) scale(1.08) rotate(7deg);
+    opacity: 0;
+  }
+}
+
+@keyframes desktop-pet-sparkle {
+  0% {
+    transform: translateY(5px) scale(.55);
+    opacity: 0;
+  }
+  35% {
+    transform: translateY(0) scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-14px) scale(.78);
+    opacity: 0;
+  }
+}
+
+
+/* ========================================================================== 
+   CONTEXTUAL CURSOR REACTIONS
+   Hovering now reflects what the Pokémon was doing + its Nature temperament.
+   ========================================================================== */
+
+/* The old generic hover wiggle is intentionally disabled whenever a contextual
+   reaction exists; the contextual class below owns the interruption animation. */
+.desktop-pokemon.has-contextual-hover-reaction:not(.is-petted) .desktop-pokemon-bouncer {
+  animation-delay: 0s !important;
+}
+
+.desktop-cursor-reaction-effects {
+  position: absolute;
+  inset: -30% -28% -4%;
+  z-index: 9;
+  pointer-events: none;
+}
+
+.desktop-cursor-reaction-emote {
+  position: absolute;
+  left: 54%;
+  top: -3%;
+  min-width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(250, 252, 248, .93);
+  color: #285f50;
+  font: 800 11px/1 system-ui, sans-serif;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .11);
+  animation: desktop-context-emote-pop .26s ease-out both;
+}
+
+.cursor-reaction-heart,
+.cursor-reaction-sparkle,
+.cursor-reaction-note,
+.cursor-reaction-puff,
+.cursor-reaction-berry {
+  position: absolute;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,.10));
+}
+
+.cursor-reaction-heart {
+  left: 18%;
+  top: 28%;
+  color: #f1a2aa;
+  font: 800 12px/1 system-ui, sans-serif;
+  animation: desktop-context-heart 1.2s ease-out infinite;
+}
+
+.cursor-reaction-sparkle {
+  right: 12%;
+  top: 22%;
+  color: #fff0a2;
+  font: 800 10px/1 system-ui, sans-serif;
+  animation: desktop-context-sparkle 1.05s ease-in-out infinite;
+}
+
+.cursor-reaction-note {
+  left: 14%;
+  top: 18%;
+  color: #f8e99b;
+  font: 800 12px/1 system-ui, sans-serif;
+  animation: desktop-context-note 1.1s ease-out infinite;
+}
+
+.cursor-reaction-puff {
+  right: 7%;
+  top: 13%;
+  color: #d88c88;
+  font: 800 15px/1 system-ui, sans-serif;
+  animation: desktop-context-grumpy-puff .72s ease-in-out infinite alternate;
+}
+
+.cursor-reaction-berry {
+  left: 10%;
+  top: 32%;
+  font-size: 13px;
+  animation: desktop-context-protect-berry .9s ease-in-out infinite alternate;
+}
+
+.cursor-reaction-slash {
+  position: absolute;
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(255,242,190,.96), transparent);
+  box-shadow: 0 0 7px rgba(255,236,154,.28);
+  opacity: .9;
+}
+
+.cursor-reaction-slash.slash-one {
+  left: 4%;
+  top: 28%;
+  transform: rotate(36deg);
+  animation: desktop-context-slash-a .58s ease-out infinite;
+}
+
+.cursor-reaction-slash.slash-two {
+  right: 3%;
+  top: 17%;
+  transform: rotate(-34deg);
+  animation: desktop-context-slash-b .58s ease-out .18s infinite;
+}
+
+/* Idle / stretch / warm acknowledgement. */
+.desktop-pokemon.hover-reaction-caring:not(.is-petted) .desktop-pokemon-bouncer {
+  animation: desktop-hover-caring .72s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.hover-reaction-caring:not(.is-petted) .desktop-pokemon-bouncer img {
+  animation: desktop-hover-caring-sprite .72s ease-in-out infinite alternate !important;
+}
+
+/* Playful and curious Natures visibly brighten up. */
+.desktop-pokemon.hover-reaction-playful:not(.is-petted) .desktop-pokemon-bouncer {
+  animation: desktop-hover-playful .38s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.hover-reaction-playful:not(.is-petted) .desktop-pokemon-bouncer img {
+  animation: desktop-hover-playful-sprite .46s ease-in-out infinite alternate !important;
+}
+
+/* Shy / startled reaction. */
+.desktop-pokemon.hover-reaction-cautious:not(.is-petted) .desktop-pokemon-bouncer {
+  animation: desktop-hover-cautious .86s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.hover-reaction-cautious:not(.is-petted) .desktop-pokemon-bouncer img {
+  animation: desktop-hover-cautious-sprite .86s ease-in-out infinite alternate !important;
+}
+
+/* Serious Pokémon barely break composure. */
+.desktop-pokemon.hover-reaction-stoic:not(.is-petted) .desktop-pokemon-bouncer {
+  animation: desktop-hover-stoic .82s ease-in-out infinite alternate !important;
+}
+
+/* Being woken up can actually annoy bold/stubborn personalities. */
+.desktop-pokemon.hover-reaction-grumpy:not(.is-petted) .desktop-pokemon-bouncer {
+  animation: desktop-hover-grumpy .28s ease-in-out 3 alternate,
+             desktop-hover-grumpy-settle .9s ease-in-out .84s infinite alternate !important;
+}
+
+.desktop-pokemon.hover-reaction-grumpy:not(.is-petted) .desktop-pokemon-bouncer img {
+  animation: desktop-hover-grumpy-sprite .34s ease-in-out infinite alternate !important;
+}
+
+/* Friendly sleeping wake-up. */
+.desktop-pokemon.hover-reaction-sleepy:not(.is-petted) .desktop-pokemon-bouncer {
+  animation: desktop-hover-sleepy 1.15s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.hover-reaction-sleepy:not(.is-petted) .desktop-pokemon-bouncer img {
+  animation: desktop-hover-sleepy-sprite 1.15s ease-in-out infinite alternate !important;
+}
+
+/* Training interruption -> battle ready. */
+.desktop-pokemon.hover-reaction-alert:not(.is-petted) .desktop-pokemon-bouncer {
+  animation: desktop-hover-alert .34s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.hover-reaction-alert:not(.is-petted) .desktop-pokemon-bouncer img {
+  animation: desktop-hover-alert-sprite .34s ease-in-out infinite alternate !important;
+}
+
+/* Happy snack vs protective snack. */
+.desktop-pokemon.hover-reaction-snack-happy:not(.is-petted) .desktop-pokemon-bouncer {
+  animation: desktop-hover-snack-happy .58s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.hover-reaction-snack-protective:not(.is-petted) .desktop-pokemon-bouncer {
+  animation: desktop-hover-snack-protective .68s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.hover-reaction-snack-protective:not(.is-petted) .desktop-pokemon-bouncer img {
+  animation: desktop-hover-snack-protective-sprite .68s ease-in-out infinite alternate !important;
+}
+
+/* A strolling Pokémon freezes its current locomotion and visually turns its
+   attention toward the cursor instead of continuing to march through the hover. */
+.desktop-pokemon.hover-reaction-stroll-look:not(.is-petted) .desktop-pokemon-bouncer {
+  animation: desktop-hover-stroll-look .72s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.activity-snack:not(.has-contextual-hover-reaction) .desktop-pokemon-bouncer {
+  animation: desktop-pokemon-snack .78s ease-in-out infinite alternate;
+}
+
+.desktop-pokemon.activity-snack:not(.has-contextual-hover-reaction) .desktop-pokemon-bouncer img {
+  animation: desktop-pokemon-snack-sprite .78s ease-in-out infinite alternate;
+}
+
+@keyframes desktop-context-emote-pop {
+  from { transform: translateY(6px) scale(.62); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+@keyframes desktop-context-heart {
+  0% { transform: translateY(5px) scale(.65) rotate(-8deg); opacity: 0; }
+  30% { opacity: 1; }
+  100% { transform: translateY(-17px) scale(1.05) rotate(7deg); opacity: 0; }
+}
+
+@keyframes desktop-context-sparkle {
+  0%,100% { transform: scale(.65) rotate(0); opacity: .28; }
+  50% { transform: scale(1.12) rotate(18deg); opacity: 1; }
+}
+
+@keyframes desktop-context-note {
+  0% { transform: translateY(5px) rotate(-8deg); opacity: 0; }
+  28% { opacity: 1; }
+  100% { transform: translateY(-15px) rotate(8deg); opacity: 0; }
+}
+
+@keyframes desktop-context-grumpy-puff {
+  from { transform: translateX(-2px) rotate(-6deg); opacity: .55; }
+  to { transform: translateX(3px) rotate(6deg); opacity: 1; }
+}
+
+@keyframes desktop-context-protect-berry {
+  from { transform: translateX(-1px) rotate(-5deg) scale(.92); }
+  to { transform: translateX(3px) rotate(5deg) scale(1.03); }
+}
+
+@keyframes desktop-context-slash-a {
+  0% { transform: translateX(-5px) scaleX(.2) rotate(36deg); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translateX(7px) scaleX(1.1) rotate(36deg); opacity: 0; }
+}
+
+@keyframes desktop-context-slash-b {
+  0% { transform: translateX(5px) scaleX(.2) rotate(-34deg); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translateX(-7px) scaleX(1.1) rotate(-34deg); opacity: 0; }
+}
+
+@keyframes desktop-hover-caring {
+  from { transform: translateY(0) rotate(-2deg) scale(.995); }
+  to { transform: translateY(-5px) rotate(2deg) scale(1.018); }
+}
+
+@keyframes desktop-hover-caring-sprite {
+  from { transform: scaleX(var(--desktop-facing,1)) rotate(-2deg); }
+  to { transform: scaleX(var(--desktop-facing,1)) rotate(4deg); }
+}
+
+@keyframes desktop-hover-playful {
+  from { transform: translateY(1px) rotate(-4deg); }
+  to { transform: translateY(-10px) rotate(4deg); }
+}
+
+@keyframes desktop-hover-playful-sprite {
+  from { transform: scaleX(var(--desktop-facing,1)) rotate(-5deg); }
+  to { transform: scaleX(var(--desktop-facing,1)) rotate(5deg); }
+}
+
+@keyframes desktop-hover-cautious {
+  from { transform: translateX(0) translateY(0) scale(.99); }
+  to { transform: translateX(-4px) translateY(-3px) scale(.96); }
+}
+
+@keyframes desktop-hover-cautious-sprite {
+  from { transform: scaleX(var(--desktop-facing,1)) rotate(0deg); }
+  to { transform: scaleX(var(--desktop-facing,1)) rotate(-4deg); }
+}
+
+@keyframes desktop-hover-stoic {
+  from { transform: translateY(0) rotate(-.7deg); }
+  to { transform: translateY(-3px) rotate(.7deg); }
+}
+
+@keyframes desktop-hover-grumpy {
+  from { transform: translateX(-4px) translateY(1px) rotate(-4deg); }
+  to { transform: translateX(4px) translateY(-2px) rotate(4deg); }
+}
+
+@keyframes desktop-hover-grumpy-settle {
+  from { transform: translateY(1px) rotate(-2deg); }
+  to { transform: translateY(-2px) rotate(2deg); }
+}
+
+@keyframes desktop-hover-grumpy-sprite {
+  from { transform: scaleX(var(--desktop-facing,1)) rotate(-4deg); }
+  to { transform: scaleX(var(--desktop-facing,1)) rotate(2deg); }
+}
+
+@keyframes desktop-hover-sleepy {
+  from { transform: translateY(3px) rotate(-2deg) scaleY(.96); }
+  to { transform: translateY(-2px) rotate(2deg) scaleY(1.01); }
+}
+
+@keyframes desktop-hover-sleepy-sprite {
+  from { transform: scaleX(var(--desktop-facing,1)) rotate(-3deg); }
+  to { transform: scaleX(var(--desktop-facing,1)) rotate(3deg); }
+}
+
+@keyframes desktop-hover-alert {
+  from { transform: translateX(-5px) translateY(0) rotate(-4deg) scale(.99); }
+  to { transform: translateX(5px) translateY(-7px) rotate(4deg) scale(1.025); }
+}
+
+@keyframes desktop-hover-alert-sprite {
+  from { transform: scaleX(var(--desktop-facing,1)) rotate(-3deg); }
+  to { transform: scaleX(var(--desktop-facing,1)) rotate(3deg); }
+}
+
+@keyframes desktop-hover-snack-happy {
+  from { transform: translateY(1px) rotate(-3deg); }
+  to { transform: translateY(-6px) rotate(3deg); }
+}
+
+@keyframes desktop-hover-snack-protective {
+  from { transform: translateX(0) translateY(1px) rotate(-2deg) scale(1); }
+  to { transform: translateX(-5px) translateY(-2px) rotate(-5deg) scale(.97); }
+}
+
+@keyframes desktop-hover-snack-protective-sprite {
+  from { transform: scaleX(var(--desktop-facing,1)) rotate(-1deg); }
+  to { transform: scaleX(var(--desktop-facing,1)) rotate(-6deg); }
+}
+
+@keyframes desktop-hover-stroll-look {
+  from { transform: translateY(0) rotate(-1deg); }
+  to { transform: translateY(-4px) rotate(2deg); }
+}
+
+@keyframes desktop-pokemon-snack {
+  from { transform: translateY(1px) rotate(-2deg); }
+  to { transform: translateY(-4px) rotate(2deg); }
+}
+
+@keyframes desktop-pokemon-snack-sprite {
+  from { transform: scaleX(var(--desktop-facing,1)) rotate(-2deg) scale(.99); }
+  to { transform: scaleX(var(--desktop-facing,1)) rotate(3deg) scale(1.015); }
+}
+
+
+/* ========================================================================== 
+   DESKTOP SOCIAL SESSIONS
+   ========================================================================== */
+
+.desktop-pokemon.is-social-approaching .desktop-pokemon-bouncer {
+  animation-name: desktop-pokemon-social-walk;
+  animation-duration: .43s;
+}
+
+.desktop-pokemon.is-social-active {
+  filter:
+    drop-shadow(0 5px 3px rgba(0, 0, 0, .12))
+    drop-shadow(0 0 8px rgba(255, 244, 183, .10));
+}
+
+.desktop-social-effects {
+  position: absolute;
+  inset: -20% -22% 4% -22%;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.desktop-social-effects .social-effect {
+  position: absolute;
+  color: #fff1a6;
+  font-size: 11px;
+  text-shadow: 0 0 7px rgba(255, 236, 145, .34);
+  animation: desktop-social-sparkle 1.35s ease-in-out infinite;
+}
+
+.desktop-social-effects .social-effect-a {
+  left: 5%;
+  top: 16%;
+}
+
+.desktop-social-effects .social-effect-b {
+  right: 4%;
+  top: 4%;
+  animation-delay: -.62s;
+}
+
+.desktop-pokemon.is-social-active.social-hangout .desktop-pokemon-bouncer,
+.desktop-pokemon.is-social-active.social-group-hangout .desktop-pokemon-bouncer {
+  animation: desktop-social-hangout 1.05s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.is-social-active.social-play .desktop-pokemon-bouncer,
+.desktop-pokemon.is-social-active.social-group-play .desktop-pokemon-bouncer {
+  animation: desktop-social-play .48s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.is-social-active.social-spar .desktop-pokemon-bouncer,
+.desktop-pokemon.is-social-active.social-move-practice .desktop-pokemon-bouncer,
+.desktop-pokemon.is-social-active.social-group-training .desktop-pokemon-bouncer {
+  animation: desktop-social-spar .42s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.is-social-active.social-snack .desktop-pokemon-bouncer,
+.desktop-pokemon.is-social-active.social-group-snack .desktop-pokemon-bouncer {
+  animation: desktop-social-snack .76s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.is-social-active.social-spar .desktop-pokemon-bouncer img,
+.desktop-pokemon.is-social-active.social-move-practice .desktop-pokemon-bouncer img,
+.desktop-pokemon.is-social-active.social-group-training .desktop-pokemon-bouncer img {
+  animation: desktop-social-combat-sprite .34s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.is-social-active.social-play .desktop-pokemon-bouncer img,
+.desktop-pokemon.is-social-active.social-group-play .desktop-pokemon-bouncer img {
+  animation: desktop-social-play-sprite .52s ease-in-out infinite alternate !important;
+}
+
+.desktop-pokemon.is-social-active.social-hangout .desktop-social-effects .social-effect-b,
+.desktop-pokemon.is-social-active.social-group-hangout .desktop-social-effects .social-effect-b {
+  color: #ffd2da;
+}
+
+.desktop-pokemon.is-social-active.social-spar .desktop-social-effects .social-effect,
+.desktop-pokemon.is-social-active.social-move-practice .desktop-social-effects .social-effect,
+.desktop-pokemon.is-social-active.social-group-training .desktop-social-effects .social-effect {
+  animation-name: desktop-social-battle-flash;
+  color: #fff0bd;
+}
+
+@keyframes desktop-pokemon-social-walk {
+  from {
+    transform: translateY(0) rotate(-2.2deg);
+  }
+  to {
+    transform: translateY(-9px) rotate(2.2deg);
+  }
+}
+
+@keyframes desktop-social-hangout {
+  from {
+    transform: translateY(0) rotate(-1.7deg);
+  }
+  to {
+    transform: translateY(-5px) rotate(1.7deg);
+  }
+}
+
+@keyframes desktop-social-play {
+  from {
+    transform: translateY(0) translateX(-2px) rotate(-3deg);
+  }
+  to {
+    transform: translateY(-10px) translateX(2px) rotate(3deg);
+  }
+}
+
+@keyframes desktop-social-spar {
+  from {
+    transform: translateX(-6px) translateY(-1px) rotate(-4deg);
+  }
+  to {
+    transform: translateX(6px) translateY(-8px) rotate(4deg);
+  }
+}
+
+@keyframes desktop-social-snack {
+  from {
+    transform: translateY(2px) rotate(-3deg) scale(.99);
+  }
+  to {
+    transform: translateY(-3px) rotate(3deg) scale(1.025);
+  }
+}
+
+@keyframes desktop-social-combat-sprite {
+  from {
+    transform: scaleX(var(--desktop-facing, 1)) translateX(-2px) rotate(-3deg);
+  }
+  to {
+    transform: scaleX(var(--desktop-facing, 1)) translateX(3px) rotate(3deg);
+  }
+}
+
+@keyframes desktop-social-play-sprite {
+  from {
+    transform: scaleX(var(--desktop-facing, 1)) rotate(-4deg);
+  }
+  to {
+    transform: scaleX(var(--desktop-facing, 1)) rotate(4deg);
+  }
+}
+
+@keyframes desktop-social-sparkle {
+  0% {
+    transform: translateY(5px) scale(.7);
+    opacity: 0;
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-10px) scale(.95);
+    opacity: 0;
+  }
+}
+
+@keyframes desktop-social-battle-flash {
+  0%, 100% {
+    transform: scale(.7) rotate(-12deg);
+    opacity: .25;
+  }
+  50% {
+    transform: scale(1.15) rotate(12deg);
+    opacity: 1;
+  }
+}
